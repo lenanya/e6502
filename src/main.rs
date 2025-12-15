@@ -26,6 +26,7 @@ enum Instruction {
     LDY_IMM = 0xA0,
     STA_ABS = 0x8D,
     STA_ZPG = 0x85,
+    NOP = 0xEA,
 }
 
 #[derive(Debug)]
@@ -89,6 +90,10 @@ impl Emulator {
         print!("I: {:?} ", inst);
 
         match inst {
+            Instruction::NOP => {
+                self.instruction_pointer += 1;
+                Ok(())
+            }
             Instruction::BRK => {
                 println!();
                 return Err(EErr::Break);
