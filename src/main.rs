@@ -280,7 +280,7 @@ impl Emulator {
 
     fn exec_instruction(&mut self) -> Result<(), EErr> {
         let inst = self.read_instruction()?;
-        print!("I: {:?} ", inst);
+        print!("0x{:04X}: {:?} ", self.instruction_pointer, inst);
 
         match inst {
             Instruction::BPL => {
