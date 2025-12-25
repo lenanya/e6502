@@ -12,10 +12,10 @@ struct Emulator {
     a: u8,
     x: u8,
     y: u8,
-    instruction_pointer: u16,
-    stack_pointer: u8,
+    pc: u16,
+    sp: u8,
     data: [u8; K64],
-    psr: u8
+    sr: u8
 }
 
 #[allow(non_camel_case_types)]
@@ -187,7 +187,7 @@ enum Instruction {
 }
 
 #[repr(u8)]
-enum PsrMask {
+enum SRMask {
     Carry       = 0b00000001,
     Zero        = 0b00000010,
     Interrupt   = 0b00000100,
@@ -228,15 +228,15 @@ impl Emulator {
             a: 0,
             x: 0,
             y: 0,
-            instruction_pointer: rv,
-            stack_pointer: 0xff,
+            pc: rv,
+            sp: 0xff,
             data: data.clone(),
-            psr: PsrMask::Reserved as u8
+            sr: SRMask::Reserved as u8
         }
     }
 
     fn read_byte(&mut self) -> u8 {
-        self.data[usize::from(self.instruction_pointer)]
+        self.data[usize::from(self.pc)]
     }
 
     fn read_byte_at(&mut self, addr: u16) -> u8 {
@@ -245,7 +245,7 @@ impl Emulator {
 
     fn read_addr(&mut self) -> u16 {
         let low = u16::from(self.read_byte());
-        let addr: u16 = self.instruction_pointer;
+        let addr: u16 = self.pc;
         let high = u16::from(self.read_byte_at(addr + 1));
         high << 8 | low
     }
@@ -255,109 +255,158 @@ impl Emulator {
         Instruction::from_u8(b).ok_or(b)
     }
 
-    fn set_psr_bit(&mut self, b: PsrMask, v: bool) {
+    fn set_sr_bit(&mut self, b: SRMask, v: bool) {
         if v {
-            self.psr |= b as u8;
+            self.sr |= b as u8;
         } else {
-            self.psr &= !(b as u8);
+            self.sr &= !(b as u8);
         }
     }
 
-    fn get_psr_bit(&mut self, b: PsrMask) -> bool {
-        self.psr & b as u8 != 0
+    fn get_psr_bit(&mut self, b: SRMask) -> bool {
+        self.sr & b as u8 != 0
     }
 
     fn push_to_stack(&mut self, b: u8) {
-        self.data[0x100 | self.stack_pointer as usize] = b;
-        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+        self.data[0x100 | self.sp as usize] = b;
+        self.sp = self.sp.wrapping_sub(1);
     }
 
     fn pop_from_stack(&mut self) -> u8 {
-        let b = self.data[0x100 | (self.stack_pointer) as usize];
-        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        let b = self.data[0x100 | (self.sp) as usize];
+        self.sp = self.sp.wrapping_add(1);
         b
     }
 
     fn exec_instruction(&mut self) -> Result<(), EErr> {
         let inst = self.read_instruction()?;
-        print!("0x{:04X}: {:?} ", self.instruction_pointer, inst);
+        print!("0x{:04X}: {:?} ", self.pc, inst);
 
         match inst {
             Instruction::BPL => {
-                self.instruction_pointer += 1;
-                if self.get_psr_bit(PsrMask::Negative) {
-                    self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
+                if self.get_psr_bit(SRMask::Negative) {
+                    self.pc = self.pc.wrapping_add(1);
                     return Ok(())
                 }
                 let offset = self.read_byte() as i8;
                 let idk = offset as i16;
-                self.instruction_pointer = self.instruction_pointer.wrapping_add(idk as u16);
-                println!("#${:04X}", self.instruction_pointer);
+                self.pc = self.pc.wrapping_add(idk as u16);
+                println!("#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::JSR => {
-                self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
                 let addr = self.read_addr();
-                self.instruction_pointer += 2;
-                let ret_high: u8 = (self.instruction_pointer >> 4) as u8;
-                let ret_low: u8 = (self.instruction_pointer & 0xff) as u8;
+
+                // keeping the logic as in the actual 6502
+                // cause for some reason the other increment is done in RTS
+                // as this is PC+2 which the original 6502 apparently did
+                self.pc = self.pc.wrapping_add(1);
+                let ret_high: u8 = (self.pc >> 4) as u8;
+                let ret_low: u8 = (self.pc & 0xff) as u8;
                 self.push_to_stack(ret_high);
                 self.push_to_stack(ret_low);
-                self.instruction_pointer = addr;
-                println!("#${:04X}", self.instruction_pointer);
+                self.pc = addr;
+                println!("#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::BMI => {
-                self.instruction_pointer += 1;
-                if !self.get_psr_bit(PsrMask::Negative) {
-                    self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
+                if !self.get_psr_bit(SRMask::Negative) {
+                    self.pc = self.pc.wrapping_add(1);
                     return Ok(())
                 }
                 let offset = self.read_byte() as i8;
                 let idk = offset as i16;
-                self.instruction_pointer = self.instruction_pointer.wrapping_add(idk as u16);
-                println!("#${:04X}", self.instruction_pointer);
+                self.pc = self.pc.wrapping_add(idk as u16);
+                println!("#${:04X}", self.pc);
                 Ok(())
             }
+            Instruction::RTI => {
+                self.pc = self.pc.wrapping_add(1);
+                let new_sr = self.pop_from_stack();
+                self.sr = new_sr;
+                let new_pc_low = self.pop_from_stack() as u16;
+                let new_pc_high = self.pop_from_stack() as u16;
+                self.pc = new_pc_high << 4 | new_pc_low;
+                println!();
+                Ok(())
+            }
+            Instruction::BVC => {
+                self.pc = self.pc.wrapping_add(1);
+                if self.get_psr_bit(SRMask::Overflow) {
+                    self.pc = self.pc.wrapping_add(1);
+                    return Ok(())
+                }
+                let offset = self.read_byte() as i8;
+                let idk = offset as i16;
+                self.pc = self.pc.wrapping_add(idk as u16);
+                println!("#${:04X}", self.pc);
+                Ok(())
+            }
+            Instruction::RTS => {
+                let new_pc_low = self.pop_from_stack() as u16;
+                let new_pc_high = self.pop_from_stack() as u16;
+                let new_pc = new_pc_high << 4 | new_pc_low;
+
+                // we increment pc by 1 so we dont execute the last byte of the address
+                // that the JSR read
+                self.pc = new_pc.wrapping_add(1);
+                Ok(())
+            }
+            Instruction::BVS => {
+                self.pc = self.pc.wrapping_add(1);
+                if !self.get_psr_bit(SRMask::Overflow) {
+                    self.pc = self.pc.wrapping_add(1);
+                    return Ok(())
+                }
+                let offset = self.read_byte() as i8;
+                let idk = offset as i16;
+                self.pc = self.pc.wrapping_add(idk as u16);
+                println!("#${:04X}", self.pc);
+                Ok(())
+            }
+
             Instruction::BRK => {
                 println!();
                 return Err(EErr::Break);
             }
             Instruction::LDA_IMM => {
-                self.instruction_pointer += 1;
-                let val = self.read_byte_at(self.instruction_pointer);
+                self.pc = self.pc.wrapping_add(1);
+                let val = self.read_byte_at(self.pc);
                 println!("#${:02X}", val);
                 self.a = val;
-                self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
                 Ok(())
             }
             Instruction::STA_ABS => {
-                self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
                 let addr = self.read_addr();
                 println!("${:04X}", addr);
                 self.data[addr as usize] = self.a;
-                self.instruction_pointer += 2;
+                self.pc = self.pc.wrapping_add(2);
                 Ok(())
             }
             Instruction::STA_ZPG => {
-                self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
                 let addr = u16::from(self.read_byte());
                 let zpg_addr = usize::from(addr);
                 println!("${:02X}", addr);
                 self.data[zpg_addr] = self.a;
-                self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
                 Ok(())
             }
             Instruction::LDY_IMM => {
-                self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
                 let val = self.read_byte();
                 println!("#${:02X}", val);
                 self.y = val;
-                self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
                 Ok(())
             }
             Instruction::NOP => {
-                self.instruction_pointer += 1;
+                self.pc = self.pc.wrapping_add(1);
                 println!();
                 Ok(())
             }
@@ -369,7 +418,7 @@ impl Emulator {
     }
 
     fn run(&mut self) {
-        'end: while self.instruction_pointer < 0xFFFF {
+        'end: loop {
             if let Some(e) = self.exec_instruction().err() {
                 match e {
                     EErr::IllegalInstruction(opcode) => {
