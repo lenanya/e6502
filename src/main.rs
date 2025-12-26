@@ -405,7 +405,7 @@ impl Emulator {
                 let res = self.y.wrapping_sub(val);
                 self.set_sr_bit(SRMask::Zero, res == 0);
                 self.set_sr_bit(SRMask::Negative, res & 0x80 == 1);
-                self.set_sr_bit(SRMask::Carry, res <= self.y);
+                self.set_sr_bit(SRMask::Carry, res < self.y);
                 println!("{:02X}", val);
                 Ok(())
             }
