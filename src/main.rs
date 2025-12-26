@@ -367,7 +367,90 @@ impl Emulator {
                 println!("#${:04X}", self.pc);
                 Ok(())
             }
+            Instruction::BCC => {
+                self.pc = self.pc.wrapping_add(1);
+                if self.get_psr_bit(SRMask::Carry) {
+                    self.pc = self.pc.wrapping_add(1);
+                    return Ok(())
+                }
+                let offset = self.read_byte() as i8;
+                let idk = offset as i16;
+                self.pc = self.pc.wrapping_add(idk as u16);
+                println!("#${:04X}", self.pc);
+                Ok(())
+            }
+            Instruction::LDY_IMM => {
+                self.pc = self.pc.wrapping_add(1);
+                let val = self.read_byte();
+                println!("#${:02X}", val);
+                self.y = val;
+                self.pc = self.pc.wrapping_add(1);
+                Ok(())
+            }
+            Instruction::BCS => {
+                self.pc = self.pc.wrapping_add(1);
+                if !self.get_psr_bit(SRMask::Carry) {
+                    self.pc = self.pc.wrapping_add(1);
+                    return Ok(())
+                }
+                let offset = self.read_byte() as i8;
+                let idk = offset as i16;
+                self.pc = self.pc.wrapping_add(idk as u16);
+                println!("#${:04X}", self.pc);
+                Ok(())
+            }
+            Instruction::CPY_IMM => {
+                self.pc = self.pc.wrapping_add(1);
+                let val: u8 = self.read_byte();
+                let res = self.y.wrapping_sub(val);
+                self.set_sr_bit(SRMask::Zero, res == 0);
+                self.set_sr_bit(SRMask::Negative, res & 0x80 == 1);
+                self.set_sr_bit(SRMask::Carry, res <= self.y);
+                println!("{:02X}", val);
+                Ok(())
+            }
+            Instruction::BNE => {
+                self.pc = self.pc.wrapping_add(1);
+                if self.get_psr_bit(SRMask::Zero) {
+                    self.pc = self.pc.wrapping_add(1);
+                    return Ok(())
+                }
+                let offset = self.read_byte() as i8;
+                let idk = offset as i16;
+                self.pc = self.pc.wrapping_add(idk as u16);
+                println!("#${:04X}", self.pc);
+                Ok(())
+            }
+            Instruction::CPX_IMM => {
+                self.pc = self.pc.wrapping_add(1);
+                let val: u8 = self.read_byte();
+                let res = self.x.wrapping_sub(val);
+                self.set_sr_bit(SRMask::Zero, res == 0);
+                self.set_sr_bit(SRMask::Negative, res & 0x80 == 1);
+                self.set_sr_bit(SRMask::Carry, res <= self.x);
+                println!("{:02X}", val);
+                Ok(())
+            }
+            Instruction::BEQ => {
+                self.pc = self.pc.wrapping_add(1);
+                if !self.get_psr_bit(SRMask::Zero) {
+                    self.pc = self.pc.wrapping_add(1);
+                    return Ok(())
+                }
+                let offset = self.read_byte() as i8;
+                let idk = offset as i16;
+                self.pc = self.pc.wrapping_add(idk as u16);
+                println!("#${:04X}", self.pc);
+                Ok(())
+            }
 
+            Instruction::JMP_ABS => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_addr();
+                self.pc = addr;
+                println!("#${:04X}", addr);
+                Ok(())
+            }
             Instruction::BRK => {
                 println!();
                 return Err(EErr::Break);
@@ -397,14 +480,7 @@ impl Emulator {
                 self.pc = self.pc.wrapping_add(1);
                 Ok(())
             }
-            Instruction::LDY_IMM => {
-                self.pc = self.pc.wrapping_add(1);
-                let val = self.read_byte();
-                println!("#${:02X}", val);
-                self.y = val;
-                self.pc = self.pc.wrapping_add(1);
-                Ok(())
-            }
+            
             Instruction::NOP => {
                 self.pc = self.pc.wrapping_add(1);
                 println!();
@@ -442,7 +518,7 @@ fn main() {
     code[2] = 0x8D; code[3] = 0x00; code[4] = 0x20;     // sta $2000
     code[5] = 0xA9; code[6] = 0x01;                     // lda $1
     code[7] = 0x85; code[8] = 0x00;                     // sta zp[0]
-    code[9] = 0x4C; code[10] = 0x00; code[11] = 0x00;   // jmp #$0000                     
+    code[9] = 0x4C; code[10] = 0x00; code[11] = 0x80;   // jmp #$8000                     
 
     let mut e = Emulator::init(code);
     e.run();
