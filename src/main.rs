@@ -250,6 +250,12 @@ impl Emulator {
         high << 8 | low
     }
 
+    fn read_addr_1b(&mut self, pos: u8) -> u16 {
+        let low = u16::from(self.read_byte_at(pos as u16));
+        let high = u16::from(self.read_byte_at(pos.wrapping_add(1) as u16));
+        high << 8 | low
+    }
+
     fn read_instruction(&mut self) -> Result<Instruction, u8> {
         let b: u8 = self.read_byte();
         Instruction::from_u8(b).ok_or(b)
@@ -278,6 +284,18 @@ impl Emulator {
         b
     }
 
+    fn branch(&mut self, cond: bool) {
+        if cond {
+            self.pc = self.pc.wrapping_add(1);
+            return;
+        }
+        let offset = self.read_byte() as i8;
+        self.pc = self.pc.wrapping_add(1);
+        let idk = offset as i16;
+        self.pc = self.pc.wrapping_add(idk as u16);
+        println!("#${:04X}", self.pc);
+    }
+
     fn exec_instruction(&mut self) -> Result<(), EErr> {
         let inst = self.read_instruction()?;
         print!("0x{:04X}: {:?} ", self.pc, inst);
@@ -285,14 +303,8 @@ impl Emulator {
         match inst {
             Instruction::BPL => {
                 self.pc = self.pc.wrapping_add(1);
-                if self.get_psr_bit(SRMask::Negative) {
-                    self.pc = self.pc.wrapping_add(1);
-                    return Ok(())
-                }
-                let offset = self.read_byte() as i8;
-                let idk = offset as i16;
-                self.pc = self.pc.wrapping_add(idk as u16);
-                println!("#${:04X}", self.pc);
+                let cond = !self.get_psr_bit(SRMask::Negative);
+                self.branch(cond);
                 Ok(())
             }
             Instruction::JSR => {
@@ -303,7 +315,7 @@ impl Emulator {
                 // cause for some reason the other increment is done in RTS
                 // as this is PC+2 which the original 6502 apparently did
                 self.pc = self.pc.wrapping_add(1);
-                let ret_high: u8 = (self.pc >> 4) as u8;
+                let ret_high: u8 = (self.pc >> 8) as u8;
                 let ret_low: u8 = (self.pc & 0xff) as u8;
                 self.push_to_stack(ret_high);
                 self.push_to_stack(ret_low);
@@ -313,14 +325,8 @@ impl Emulator {
             }
             Instruction::BMI => {
                 self.pc = self.pc.wrapping_add(1);
-                if !self.get_psr_bit(SRMask::Negative) {
-                    self.pc = self.pc.wrapping_add(1);
-                    return Ok(())
-                }
-                let offset = self.read_byte() as i8;
-                let idk = offset as i16;
-                self.pc = self.pc.wrapping_add(idk as u16);
-                println!("#${:04X}", self.pc);
+                let cond = self.get_psr_bit(SRMask::Negative);
+                self.branch(cond);
                 Ok(())
             }
             Instruction::RTI => {
@@ -329,26 +335,21 @@ impl Emulator {
                 self.sr = new_sr;
                 let new_pc_low = self.pop_from_stack() as u16;
                 let new_pc_high = self.pop_from_stack() as u16;
-                self.pc = new_pc_high << 4 | new_pc_low;
+                self.pc = new_pc_high << 8 | new_pc_low;
                 println!();
                 Ok(())
             }
             Instruction::BVC => {
                 self.pc = self.pc.wrapping_add(1);
-                if self.get_psr_bit(SRMask::Overflow) {
-                    self.pc = self.pc.wrapping_add(1);
-                    return Ok(())
-                }
-                let offset = self.read_byte() as i8;
-                let idk = offset as i16;
-                self.pc = self.pc.wrapping_add(idk as u16);
+                let cond = self.get_psr_bit(SRMask::Overflow);
+                self.branch(cond);
                 println!("#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::RTS => {
                 let new_pc_low = self.pop_from_stack() as u16;
                 let new_pc_high = self.pop_from_stack() as u16;
-                let new_pc = new_pc_high << 4 | new_pc_low;
+                let new_pc = new_pc_high << 8 | new_pc_low;
 
                 // we increment pc by 1 so we dont execute the last byte of the address
                 // that the JSR read
@@ -357,26 +358,14 @@ impl Emulator {
             }
             Instruction::BVS => {
                 self.pc = self.pc.wrapping_add(1);
-                if !self.get_psr_bit(SRMask::Overflow) {
-                    self.pc = self.pc.wrapping_add(1);
-                    return Ok(())
-                }
-                let offset = self.read_byte() as i8;
-                let idk = offset as i16;
-                self.pc = self.pc.wrapping_add(idk as u16);
-                println!("#${:04X}", self.pc);
+                let cond =  !self.get_psr_bit(SRMask::Overflow);
+                self.branch(cond);
                 Ok(())
             }
             Instruction::BCC => {
                 self.pc = self.pc.wrapping_add(1);
-                if self.get_psr_bit(SRMask::Carry) {
-                    self.pc = self.pc.wrapping_add(1);
-                    return Ok(())
-                }
-                let offset = self.read_byte() as i8;
-                let idk = offset as i16;
-                self.pc = self.pc.wrapping_add(idk as u16);
-                println!("#${:04X}", self.pc);
+                let cond =  self.get_psr_bit(SRMask::Carry);
+                self.branch(cond);
                 Ok(())
             }
             Instruction::LDY_IMM => {
@@ -389,14 +378,8 @@ impl Emulator {
             }
             Instruction::BCS => {
                 self.pc = self.pc.wrapping_add(1);
-                if !self.get_psr_bit(SRMask::Carry) {
-                    self.pc = self.pc.wrapping_add(1);
-                    return Ok(())
-                }
-                let offset = self.read_byte() as i8;
-                let idk = offset as i16;
-                self.pc = self.pc.wrapping_add(idk as u16);
-                println!("#${:04X}", self.pc);
+                let cond = !self.get_psr_bit(SRMask::Carry);
+                self.branch(cond);
                 Ok(())
             }
             Instruction::CPY_IMM => {
@@ -404,20 +387,16 @@ impl Emulator {
                 let val: u8 = self.read_byte();
                 let res = self.y.wrapping_sub(val);
                 self.set_sr_bit(SRMask::Zero, res == 0);
-                self.set_sr_bit(SRMask::Negative, res & 0x80 == 1);
-                self.set_sr_bit(SRMask::Carry, res < self.y);
+                self.set_sr_bit(SRMask::Negative, (res & 0x80) != 0);
+                self.set_sr_bit(SRMask::Carry, self.y >= val);
+                self.pc = self.pc.wrapping_add(1);
                 println!("{:02X}", val);
                 Ok(())
             }
             Instruction::BNE => {
                 self.pc = self.pc.wrapping_add(1);
-                if self.get_psr_bit(SRMask::Zero) {
-                    self.pc = self.pc.wrapping_add(1);
-                    return Ok(())
-                }
-                let offset = self.read_byte() as i8;
-                let idk = offset as i16;
-                self.pc = self.pc.wrapping_add(idk as u16);
+                let cond = self.get_psr_bit(SRMask::Zero);
+                self.branch(cond);
                 println!("#${:04X}", self.pc);
                 Ok(())
             }
@@ -426,21 +405,28 @@ impl Emulator {
                 let val: u8 = self.read_byte();
                 let res = self.x.wrapping_sub(val);
                 self.set_sr_bit(SRMask::Zero, res == 0);
-                self.set_sr_bit(SRMask::Negative, res & 0x80 == 1);
-                self.set_sr_bit(SRMask::Carry, res <= self.x);
+                self.set_sr_bit(SRMask::Negative, (res & 0x80) != 0);
+                self.set_sr_bit(SRMask::Carry, self.y >= val);
+                self.pc = self.pc.wrapping_add(1);
                 println!("{:02X}", val);
                 Ok(())
             }
             Instruction::BEQ => {
                 self.pc = self.pc.wrapping_add(1);
-                if !self.get_psr_bit(SRMask::Zero) {
-                    self.pc = self.pc.wrapping_add(1);
-                    return Ok(())
-                }
-                let offset = self.read_byte() as i8;
-                let idk = offset as i16;
-                self.pc = self.pc.wrapping_add(idk as u16);
-                println!("#${:04X}", self.pc);
+                let cond = !self.get_psr_bit(SRMask::Zero);
+                self.branch(cond);
+                Ok(())
+            }
+            Instruction::ORA_X_IND => {
+                self.pc = self.pc.wrapping_add(1);
+                let ind = self.data[self.pc as usize].wrapping_add(self.x);
+                let addr = self.read_addr_1b(ind);
+                let val = self.read_byte_at(addr);
+                self.a = self.a | val;
+                self.set_sr_bit(SRMask::Zero, self.a == 0);
+                self.set_sr_bit(SRMask::Negative, (self.a & 0x80) != 0);
+                self.pc = self.pc.wrapping_add(1);
+                println!("#${:02X}", ind);
                 Ok(())
             }
 
