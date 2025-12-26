@@ -511,14 +511,14 @@ impl Emulator {
 }
 
 fn main() {
-    let mut code: [u8; K32] = [0; K32];
+    let mut code: [u8; K32] = [0x00; K32];
     code[0xfffc - K32] = 0x00;
     code[0xfffd - K32] = 0x80;
     code[0] = 0xA9; code[1] = 0xFF;                     // lda #$ff
     code[2] = 0x8D; code[3] = 0x00; code[4] = 0x20;     // sta $2000
     code[5] = 0xA9; code[6] = 0x01;                     // lda $1
     code[7] = 0x85; code[8] = 0x00;                     // sta zp[0]
-    code[9] = 0x4C; code[10] = 0x00; code[11] = 0x80;   // jmp #$8000                     
+    // code[9] = 0x4C; code[10] = 0x00; code[11] = 0x80;   // jmp #$8000                     
 
     let mut e = Emulator::init(code);
     e.run();
