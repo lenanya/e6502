@@ -523,3 +523,6 @@ fn main() {
     let mut e = Emulator::init(code);
     e.run();
 }
+
+// TODO:    maybe add WDC extensions as an option? (are conditional enum fields a thing)
+//          actually probably just make it a flag to the compiler and check upon encounter
