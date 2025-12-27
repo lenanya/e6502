@@ -44,7 +44,9 @@ struct Emulator {
     /// Internal RAM and ROM        
     bus: Bus,   
     /// State Register (flags)
-    sr: u8               
+    sr: u8,  
+    /// Whether to print instructions and state or not
+    debug: bool            
 }
 
 #[derive(Clone, Copy)]
@@ -300,7 +302,9 @@ impl Bus {
             }
             // reserved1
             0x4000..=0x5FFF => {
-                
+                if addr == 0x4000 {
+                    print!("{}", byte as char);
+                }
             }
             // reserved2
             0x6000..=0x7FFF => {
@@ -314,11 +318,19 @@ impl Bus {
     }
 }
 
+macro_rules! trace {
+    ($self:ident, $($arg:tt)*) => {
+        if $self.debug {
+            println!($($arg)*);
+        };
+    }
+}
+
 // implementations of methods for Emulator
 impl Emulator {
     /// Initialise the Emulator struct with the supplied ROM data, get the Reset Vector and 
     /// initialise registers
-    fn init(code: [u8; K32]) -> Emulator {
+    fn init(code: [u8; K32], debug: bool) -> Emulator {
         let bus = Bus::init(code);
 
         // get the Reset Vector address from the ROM
@@ -334,7 +346,8 @@ impl Emulator {
             pc: rv,   // start execution at the address in the RV
             sp: 0xff, // stack starts at 0x1ff since it grows down
             bus: bus.clone(),
-            sr: SRMask::Reserved as u8 // bit 5 is always set when pushing so set it
+            sr: SRMask::Reserved as u8, // bit 5 is always set when pushing so set it
+            debug: debug
         }
     }
 
@@ -413,8 +426,8 @@ impl Emulator {
 
     /// Pull a byte from the stack
     fn pop_from_stack(&mut self) -> u8 {
-        let byte = self.bus.read(STACK_BASE as u16 | (self.sp) as u16);
         self.sp = self.sp.wrapping_add(1); // automatic wrapping again
+        let byte = self.bus.read(STACK_BASE as u16 | (self.sp) as u16);
         byte
     }
 
@@ -798,25 +811,29 @@ impl Emulator {
     Execute the Instruction at PC, returns EErr on illegal opcode or BRK
     */
     fn exec_instruction(&mut self) -> Result<(), EErr> {
-        self.print_state();
+        if self.debug {
+            self.print_state();
+        }
         // get the opcode, propagate error if illegal
         let inst = self.read_instruction()?; 
         // print the current PC, and the instruction read
-        print!("0x{:04X}: {:?} ", self.pc, inst);
+        if self.debug {
+            print!("0x{:04X}: {:?} ", self.pc, inst);
+        }
         // increment PC to the Operand or next instruction
         self.pc = self.pc.wrapping_add(1);
 
         match inst {
             Instruction::BRK => {
                 // halt execution
-                println!(); // do nothing and return Break
+                trace!(self, ""); // do nothing and return Break
                 Err(EErr::Break)
             }
             Instruction::BPL => {
                 // branch if not negative
                 let cond = !self.get_psr_bit(SRMask::Negative);
                 self.branch(cond);
-                println!("#${:04X}", self.pc);
+                trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::JSR => {
@@ -836,14 +853,14 @@ impl Emulator {
                 self.push_to_stack(ret_low);
                 // jump
                 self.pc = addr;
-                println!("#${:04X}", self.pc);
+                trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::BMI => {
                 // branch if negative
                 let cond = self.get_psr_bit(SRMask::Negative);
                 self.branch(cond);
-                println!("#${:04X}", self.pc);
+                trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::RTI => {
@@ -853,14 +870,14 @@ impl Emulator {
                 self.sr = new_sr;
                 // get return address from stack and jump
                 self.pc = self.read_addr_from_stack();
-                println!("-> ${:04X}", self.pc);
+                trace!(self, "-> ${:04X}", self.pc);
                 Ok(())
             }
             Instruction::BVC => {
                 // branch if no overflow occured
                 let cond = !self.get_psr_bit(SRMask::Overflow);
                 self.branch(cond);
-                println!("#${:04X}", self.pc);
+                trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::RTS => {
@@ -871,63 +888,63 @@ impl Emulator {
                 // we increment pc by 1 so we dont execute the last byte of the address
                 // that the JSR read
                 self.pc = new_pc.wrapping_add(1);
-                println!("-> ${:04X}", self.pc);
+                trace!(self, "-> ${:04X}", self.pc);
                 Ok(())
             }
             Instruction::BVS => {
                 // branch if overflow occured 
                 let cond = self.get_psr_bit(SRMask::Overflow);
                 self.branch(cond);
-                println!("#${:04X}", self.pc);
+                trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::BCC => {
                 // branch on carry == 0
                 let cond = !self.get_psr_bit(SRMask::Carry);
                 self.branch(cond);
-                println!("#${:04X}", self.pc);
+                trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::LDY_IMM => {
                 // load immediate value into Y register
                 let byte = self.read_byte();
                 self.ldy(byte);
-                println!("#${:02X}", byte);
+                trace!(self, "#${:02X}", byte);
                 Ok(())
             }
             Instruction::BCS => {
                 // branch on carry == 1
                 let cond = self.get_psr_bit(SRMask::Carry);
                 self.branch(cond);
-                println!("#${:04X}", self.pc);
+                trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::CPY_IMM => {
                 // compare immediate value to Y register
                 let byte: u8 = self.read_byte();
                 self.cpy(byte);
-                println!("{:02X}", byte);
+                trace!(self, "{:02X}", byte);
                 Ok(())
             }
             Instruction::BNE => {
                 // branch on zero == 1 (Values were not equal in comparison)
                 let cond = !self.get_psr_bit(SRMask::Zero);
                 self.branch(cond);
-                println!("#${:04X}", self.pc);
+                trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::CPX_IMM => {
                 // compare immediate value to X register
                 let byte: u8 = self.read_byte();
                 self.cpx(byte);
-                println!("{:02X}", byte);
+                trace!(self, "{:02X}", byte);
                 Ok(())
             }
             Instruction::BEQ => {
                 // branch on zero == 0 (Values were equal in comparison)
                 let cond = self.get_psr_bit(SRMask::Zero);
                 self.branch(cond);
-                println!("#${:04X}", self.pc);
+                trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
             Instruction::ORA_X_IND => {
@@ -936,7 +953,7 @@ impl Emulator {
                 let addr = self.x_ind();
                 let byte = self.read_byte_at(addr);
                 self.ora(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ORA_IND_Y => {
@@ -945,7 +962,7 @@ impl Emulator {
                 let addr = self.ind_y();
                 let byte = self.read_byte_at(addr);
                 self.ora(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::AND_X_IND => {
@@ -954,7 +971,7 @@ impl Emulator {
                 let addr = self.x_ind();
                 let byte = self.read_byte_at(addr);
                 self.and(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::AND_IND_Y => {
@@ -963,7 +980,7 @@ impl Emulator {
                 let addr = self.ind_y();
                 let byte = self.read_byte_at(addr);
                 self.and(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::EOR_X_IND => {
@@ -972,7 +989,7 @@ impl Emulator {
                 let addr = self.x_ind();
                 let byte = self.read_byte_at(addr);
                 self.eor(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::EOR_IND_Y => {
@@ -981,7 +998,7 @@ impl Emulator {
                 let addr = self.ind_y();
                 let byte = self.read_byte_at(addr);
                 self.eor(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ADC_X_IND => {
@@ -990,7 +1007,7 @@ impl Emulator {
                 let addr = self.x_ind();
                 let byte = self.read_byte_at(addr);
                 self.adc(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ADC_IND_Y => {
@@ -999,7 +1016,7 @@ impl Emulator {
                 let addr = self.ind_y();
                 let byte = self.read_byte_at(addr);
                 self.adc(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::STA_X_IND => {
@@ -1007,7 +1024,7 @@ impl Emulator {
                 // an address on the zeropage, X indexed
                 let addr = self.x_ind();
                 self.sta(addr);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::STA_IND_Y => {
@@ -1015,7 +1032,7 @@ impl Emulator {
                 // an address on the zeropage, indirect, + Y
                 let addr = self.ind_y();
                 self.sta(addr);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDA_X_IND => {
@@ -1024,7 +1041,7 @@ impl Emulator {
                 let addr = self.x_ind();
                 let byte = self.read_byte_at(addr);
                 self.lda(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDA_IND_Y => {
@@ -1033,7 +1050,7 @@ impl Emulator {
                 let addr = self.ind_y();
                 let byte = self.read_byte_at(addr);
                 self.lda(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::CMP_X_IND => {
@@ -1041,7 +1058,7 @@ impl Emulator {
                 let addr = self.x_ind();
                 let byte: u8 = self.read_byte_at(addr);
                 self.cmp(byte);
-                println!("{:04X}", addr);
+                trace!(self, "{:04X}", addr);
                 Ok(())
             }
             Instruction::CMP_IND_Y => {
@@ -1049,7 +1066,7 @@ impl Emulator {
                 let addr = self.ind_y();
                 let byte: u8 = self.read_byte_at(addr);
                 self.cmp(byte);
-                println!("{:04X}", addr);
+                trace!(self, "{:04X}", addr);
                 Ok(())
             }
             Instruction::SBC_X_IND => {
@@ -1058,7 +1075,7 @@ impl Emulator {
                 let addr = self.x_ind();
                 let byte = self.read_byte_at(addr);
                 self.sbc(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::SBC_IND_Y => {
@@ -1067,14 +1084,14 @@ impl Emulator {
                 let addr = self.ind_y();
                 let byte = self.read_byte_at(addr);
                 self.sbc(byte);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDX_IMM => {
                 // load the immediate value into X
                 let byte = self.read_byte();
                 self.ldx(byte);
-                println!("#${:02X}", byte);
+                trace!(self, "#${:02X}", byte);
                 Ok(())
             }
             Instruction::BIT_ZPG => {
@@ -1083,21 +1100,21 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.bit(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::STY_ZPG => {
                 // store Y into an address on the zeropage
                 let addr = self.read_byte();
                 self.sty(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::STY_ZPG_X => {
                 // store Y into an address on the zeropage, X indexed
                 let addr = self.read_byte().wrapping_add(self.x);
                 self.sty(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::LDY_ZPG => {
@@ -1105,7 +1122,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.ldy(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::LDY_ZPG_X => {
@@ -1114,7 +1131,7 @@ impl Emulator {
                 let addr = self.read_byte().wrapping_add(self.x);
                 let byte = self.read_byte_at(addr as u16);
                 self.ldy(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::CPY_ZPG => {
@@ -1123,7 +1140,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.cpy(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::CPX_ZPG => {
@@ -1132,7 +1149,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.cpx(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ORA_ZPG => {
@@ -1141,7 +1158,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.ora(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ORA_ZPG_X => {
@@ -1150,7 +1167,7 @@ impl Emulator {
                 let addr = self.read_byte().wrapping_add(self.x);
                 let byte = self.read_byte_at(addr as u16);
                 self.ora(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::AND_ZPG => {
@@ -1159,7 +1176,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.and(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::AND_ZPG_X => {
@@ -1168,7 +1185,7 @@ impl Emulator {
                 let addr = self.read_byte().wrapping_add(self.x);
                 let byte = self.read_byte_at(addr as u16);
                 self.and(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::EOR_ZPG => {
@@ -1177,7 +1194,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.eor(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::EOR_ZPG_X => {
@@ -1186,7 +1203,7 @@ impl Emulator {
                 let addr = self.read_byte().wrapping_add(self.x);
                 let byte = self.read_byte_at(addr as u16);
                 self.eor(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ADC_ZPG => {
@@ -1195,7 +1212,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.adc(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ADC_ZPG_X => {
@@ -1204,21 +1221,21 @@ impl Emulator {
                 let addr = self.read_byte().wrapping_add(self.x);
                 let byte = self.read_byte_at(addr as u16);
                 self.adc(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::STA_ZPG => {
                 // store value from Accumulator at address on the zeropage
                 let addr = self.read_byte();
                 self.sta(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::STA_ZPG_X => {
                 // store value from Accumulator at address on the zeropage, X indexed
                 let addr = self.read_byte().wrapping_add(self.x);
                 self.sta(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::LDA_ZPG => {
@@ -1226,7 +1243,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.lda(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::LDA_ZPG_X => {
@@ -1234,7 +1251,7 @@ impl Emulator {
                 let addr = self.read_byte().wrapping_add(self.x);
                 let byte = self.read_byte_at(addr as u16);
                 self.lda(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::CMP_ZPG => {
@@ -1242,7 +1259,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte: u8 = self.read_byte_at(addr as u16);
                 self.cmp(byte);
-                println!("{:02X}", addr);
+                trace!(self, "{:02X}", addr);
                 Ok(())
             }
             Instruction::CMP_ZPG_X => {
@@ -1250,7 +1267,7 @@ impl Emulator {
                 let addr = self.read_byte().wrapping_add(self.x);
                 let byte: u8 = self.read_byte_at(addr as u16);
                 self.cmp(byte);
-                println!("{:02X}", addr);
+                trace!(self, "{:02X}", addr);
                 Ok(())
             }
             Instruction::SBC_ZPG => {
@@ -1259,7 +1276,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.sbc(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::SBC_ZPG_X => {
@@ -1268,7 +1285,7 @@ impl Emulator {
                 let addr = self.read_byte().wrapping_add(self.x);
                 let byte = self.read_byte_at(addr as u16);
                 self.sbc(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ASL_ZPG => {
@@ -1276,7 +1293,7 @@ impl Emulator {
                 // the zeropage
                 let addr = self.read_byte();
                 self.asl_addr(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ASL_ZPG_X => {
@@ -1284,7 +1301,7 @@ impl Emulator {
                 // the zeropage, X indexed
                 let addr = self.read_byte().wrapping_add(self.x);
                 self.asl_addr(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ROL_ZPG => {
@@ -1292,7 +1309,7 @@ impl Emulator {
                 // the zeropage
                 let addr = self.read_byte();
                 self.rol_addr(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ROL_ZPG_X => {
@@ -1300,7 +1317,7 @@ impl Emulator {
                 // the zeropage, X indexed
                 let addr = self.read_byte().wrapping_add(self.x);
                 self.rol_addr(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::LSR_ZPG => {
@@ -1308,7 +1325,7 @@ impl Emulator {
                 // the zeropage
                 let addr = self.read_byte();
                 self.lsr_addr(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::LSR_ZPG_X => {
@@ -1316,7 +1333,7 @@ impl Emulator {
                 // the zeropage, X indexed
                 let addr = self.read_byte().wrapping_add(self.x);
                 self.lsr_addr(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ROR_ZPG => {
@@ -1324,7 +1341,7 @@ impl Emulator {
                 // the zeropage
                 let addr = self.read_byte();
                 self.ror_addr(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::ROR_ZPG_X => {
@@ -1332,21 +1349,21 @@ impl Emulator {
                 // the zeropage, X indexed
                 let addr = self.read_byte().wrapping_add(self.x);
                 self.ror_addr(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::STX_ZPG => {
                 // store value in X at address on zeropage
                 let addr = self.read_byte();
                 self.stx(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::STX_ZPG_Y => {
                 // store value in X at address on zeropage, Y indexed
                 let addr = self.read_byte().wrapping_add(self.y);
                 self.stx(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::LDX_ZPG => {
@@ -1354,7 +1371,7 @@ impl Emulator {
                 let addr = self.read_byte();
                 let byte = self.read_byte_at(addr as u16);
                 self.ldx(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::LDX_ZPG_Y => {
@@ -1362,145 +1379,145 @@ impl Emulator {
                 let addr = self.read_byte().wrapping_add(self.y);
                 let byte = self.read_byte_at(addr as u16);
                 self.ldx(byte);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::DEC_ZPG => {
                 // decrement a value at address on zeropage
                 let addr = self.read_byte();
                 self.dec(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::DEC_ZPG_X => {
                 // decrement a value at address on zeropage, X indexed
                 let addr = self.read_byte().wrapping_add(self.x);
                 self.dec(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::INC_ZPG => {
                 // increment a value at address on zeropage
                 let addr = self.read_byte();
                 self.inc(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::INC_ZPG_X => {
                 // increment a value at address on zeropage, X indexed
                 let addr = self.read_byte().wrapping_add(self.x);
                 self.inc(addr as u16);
-                println!("${:02X}", addr);
+                trace!(self, "${:02X}", addr);
                 Ok(())
             }
             Instruction::PHP => {
                 // push SR to stack with the Break bit set
                 self.push_to_stack(self.sr | SRMask::Break as u8);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::CLC => {
                 // clear carry bit
                 self.sr = self.sr & !(SRMask::Carry as u8);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::PLP => {
                 // pull SR from stack, ignoring Break and Reserved bit
                 let stack_sr = self.pop_from_stack();
                 self.sr = stack_sr & !B_R_MASK | self.sr & B_R_MASK;
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::SEC => {
                 // set carry bit
                 self.sr = self.sr | SRMask::Carry as u8;
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::PHA => {
                 // push Accumulator to stack
                 self.push_to_stack(self.a);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::CLI => {
                 // clear interrupt bit
                 self.sr = self.sr & !(SRMask::Interrupt as u8);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::PLA => {
                 // pull Accumulator from stack
                 self.a = self.pop_from_stack();
                 self.set_nz(self.a);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::SEI => {
                 // set interrupt bit
                 self.sr = self.sr | SRMask::Interrupt as u8;
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::DEY => {
                 // decrement Y
                 self.y = self.y.wrapping_sub(1);
                 self.set_nz(self.y);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::TYA => {
                 // transfer Y to Accumulator
                 self.a = self.y;
                 self.set_nz(self.a);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::TAY => {
                 // transfer Acccumulator to Y
                 self.y = self.a;
                 self.set_nz(self.y);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::CLV => {
                 // clear overflow bit
                 self.sr = self.sr & !(SRMask::Overflow as u8);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::INY => {
                 // increment Y
                 self.y = self.y.wrapping_add(1);
                 self.set_nz(self.y);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::CLD => {
                 // clear Decimal bit
                 self.sr = self.sr & !(SRMask::Decimal as u8);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::INX => {
                 // increment X
                 self.x = self.x.wrapping_add(1);
                 self.set_nz(self.x);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::SED => {
                 // set Decimal bit
                 self.sr = self.sr | SRMask::Decimal as u8;
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::ORA_IMM => {
                 // perform an OR with Accumulator and immediate value
                 let byte = self.read_byte();
                 self.ora(byte);
-                println!("#${:02X}", byte);
+                trace!(self, "#${:02X}", byte);
                 Ok(())
             }
             Instruction::ORA_ABS_Y => {
@@ -1509,14 +1526,14 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.ora(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::AND_IMM => {
                 // perform an AND with Accumulator and immediate value
                 let byte = self.read_byte();
                 self.and(byte);
-                println!("#${:02X}", byte);
+                trace!(self, "#${:02X}", byte);
                 Ok(())
             }
             Instruction::AND_ABS_Y => {
@@ -1525,14 +1542,14 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.and(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::EOR_IMM => {
                 // perform an exclusive OR with Accumulator and immediate value
                 let byte = self.read_byte();
                 self.eor(byte);
-                println!("#${:02X}", byte);
+                trace!(self, "#${:02X}", byte);
                 Ok(())
             }
             Instruction::EOR_ABS_Y => {
@@ -1541,14 +1558,14 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.eor(byte);
                 self.pc = self.pc.wrapping_add(1); 
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ADC_IMM => {
                 // perform an add with carry on Accumulator and immediate value
                 let byte = self.read_byte();
                 self.adc(byte);
-                println!("#${:02X}", byte);
+                trace!(self, "#${:02X}", byte);
                 Ok(())
             }
             Instruction::ADC_ABS_Y => {
@@ -1557,7 +1574,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.adc(byte);
                 self.pc = self.pc.wrapping_add(1); 
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::STA_ABS_Y => {
@@ -1565,14 +1582,14 @@ impl Emulator {
                 let addr = self.read_addr().wrapping_add(self.y as u16);
                 self.sta(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDA_IMM => {
                 // load immediate value into Accumulator
                 let byte = self.read_byte();
                 self.lda(byte);
-                println!("#${:02X}", byte);
+                trace!(self, "#${:02X}", byte);
                 Ok(())
             }
             Instruction::LDA_ABS_Y => {
@@ -1581,14 +1598,14 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.lda(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::CMP_IMM => {
                 // compare Accumulator with immediate value
                 let byte = self.read_byte();
                 self.cmp(byte);
-                println!("#${:02X}", byte);
+                trace!(self, "#${:02X}", byte);
                 Ok(())
             }
             Instruction::CMP_ABS_Y => {
@@ -1597,7 +1614,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.cmp(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("#${:04X}", byte);
+                trace!(self, "#${:04X}", byte);
                 Ok(())
             }
             Instruction::SBC_IMM => {
@@ -1605,7 +1622,7 @@ impl Emulator {
                 // and immediate value
                 let byte = self.read_byte();
                 self.sbc(byte);
-                println!("#${:02X}", byte);
+                trace!(self, "#${:02X}", byte);
                 Ok(())
             }
             Instruction::SBC_ABS_Y => {
@@ -1615,71 +1632,71 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.sbc(byte);
                 self.pc = self.pc.wrapping_add(1); 
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ASL_A => {
                 // perform an Arithmetic Shift Left on Accumulator
                 self.a = self.asl(self.a);
-                println!("A");
+                trace!(self, "A");
                 Ok(())
             }
             Instruction::ROL_A => {
                 // perform a Rotate Left on Accumulator
                 self.a = self.rol(self.a);
-                println!("A");
+                trace!(self, "A");
                 Ok(())
             }
             Instruction::LSR_A => {
                 // perform a Logical Shift Right on Accumulator
                 self.a = self.lsr(self.a);
-                println!("A");
+                trace!(self, "A");
                 Ok(())
             }
             Instruction::ROR_A => {
                 // perform a Rotate Right on Accumulator
                 self.a = self.ror(self.a);
-                println!("A");
+                trace!(self, "A");
                 Ok(())
             }
             Instruction::TXA => {
                 // transfer X to Accumulator
                 self.a = self.x;
                 self.set_nz(self.a);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::TXS => {
                 // transer X to stack pointer
                 self.sp = self.x;
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::TAX => {
                 // transfer Accumulator to X
                 self.x = self.a;
                 self.set_nz(self.x);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::TSX => {
                 // transfer stack pointer to X
                 self.x = self.sp;
                 self.set_nz(self.x);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::DEX => {
                 // decrement X
                 self.x = self.x.wrapping_sub(1);
                 self.set_nz(self.x);
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::NOP => {
                 // literally do nothing, since the PC is incremented
                 // before the match starts
-                println!();
+                trace!(self, );
                 Ok(())
             }
             Instruction::BIT_ABS => {
@@ -1688,14 +1705,14 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.bit(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::JMP_ABS => {
                 // jump to absolute address
                 let addr = self.read_addr();
                 self.pc = addr;
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::JMP_IND => {
@@ -1703,7 +1720,7 @@ impl Emulator {
                 let addr = self.read_addr();
                 let dest = self.read_addr_at(addr);
                 self.pc = dest;
-                println!("${:04X}", dest);
+                trace!(self, "${:04X}", dest);
                 Ok(())
             }
             Instruction::STY_ABS => {
@@ -1711,7 +1728,7 @@ impl Emulator {
                 let addr = self.read_addr();
                 self.sty(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDY_ABS => {
@@ -1720,7 +1737,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.ldy(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDY_ABS_X => {
@@ -1729,7 +1746,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.ldy(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::CPY_ABS => {
@@ -1738,7 +1755,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.cpy(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::CPX_ABS => {
@@ -1747,7 +1764,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.cpx(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ORA_ABS => {
@@ -1756,7 +1773,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.ora(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ORA_ABS_X => {
@@ -1765,7 +1782,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.ora(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::AND_ABS => {
@@ -1774,7 +1791,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.and(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::AND_ABS_X => {
@@ -1783,7 +1800,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.and(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::EOR_ABS => {
@@ -1792,7 +1809,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.eor(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::EOR_ABS_X => {
@@ -1801,7 +1818,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.eor(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ADC_ABS => {
@@ -1811,7 +1828,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.adc(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ADC_ABS_X => {
@@ -1821,7 +1838,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.adc(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::STA_ABS => {
@@ -1829,7 +1846,7 @@ impl Emulator {
                 let addr = self.read_addr();
                 self.sta(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::STA_ABS_X => {
@@ -1837,7 +1854,7 @@ impl Emulator {
                 let addr = self.read_addr().wrapping_add(self.x as u16);
                 self.sta(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDA_ABS => {
@@ -1846,7 +1863,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.lda(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDA_ABS_X => {
@@ -1855,7 +1872,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.lda(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::CMP_ABS => {
@@ -1864,7 +1881,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.cmp(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::CMP_ABS_X => {
@@ -1873,7 +1890,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.cmp(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::SBC_ABS => {
@@ -1882,7 +1899,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.sbc(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::SBC_ABS_X => {
@@ -1892,7 +1909,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.sbc(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ASL_ABS => {
@@ -1901,7 +1918,7 @@ impl Emulator {
                 let addr = self.read_addr();
                 self.asl_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ASL_ABS_X => {
@@ -1910,7 +1927,7 @@ impl Emulator {
                 let addr = self.read_addr().wrapping_add(self.x as u16);
                 self.asl_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ROL_ABS => {
@@ -1919,7 +1936,7 @@ impl Emulator {
                 let addr = self.read_addr();
                 self.rol_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ROL_ABS_X => {
@@ -1928,7 +1945,7 @@ impl Emulator {
                 let addr = self.read_addr().wrapping_add(self.x as u16);
                 self.rol_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LSR_ABS => {
@@ -1937,7 +1954,7 @@ impl Emulator {
                 let addr = self.read_addr();
                 self.lsr_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LSR_ABS_X => {
@@ -1946,7 +1963,7 @@ impl Emulator {
                 let addr = self.read_addr().wrapping_add(self.x as u16);
                 self.lsr_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ROR_ABS => {
@@ -1955,7 +1972,7 @@ impl Emulator {
                 let addr = self.read_addr();
                 self.ror_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::ROR_ABS_X => {
@@ -1964,7 +1981,7 @@ impl Emulator {
                 let addr = self.read_addr().wrapping_add(self.x as u16);
                 self.ror_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::STX_ABS => {
@@ -1972,7 +1989,7 @@ impl Emulator {
                 let addr = self.read_addr();
                 self.stx(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDX_ABS => {
@@ -1981,7 +1998,7 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.ldx(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::LDX_ABS_Y => {
@@ -1990,35 +2007,35 @@ impl Emulator {
                 let byte = self.read_byte_at(addr);
                 self.ldx(byte);
                 self.pc = self.pc.wrapping_add(1);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::DEC_ABS => {
                 // decrement value at absolute address
                 let addr = self.read_addr();
                 self.dec(addr);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::DEC_ABS_X => {
                 // decrement value at absolute address, X indexed
                 let addr = self.read_addr().wrapping_add(self.x as u16);
                 self.dec(addr);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::INC_ABS => {
                 // increment value at absolute address
                 let addr = self.read_addr();
                 self.inc(addr);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::INC_ABS_X => {
                 // increment value at absolute address, X indexed
                 let addr = self.read_addr().wrapping_add(self.x as u16);
                 self.inc(addr);
-                println!("${:04X}", addr);
+                trace!(self, "${:04X}", addr);
                 Ok(())
             }
         }
@@ -2071,7 +2088,7 @@ fn main() {
     });
     
     // init and run emulator
-    let mut e = Emulator::init(code);
+    let mut e = Emulator::init(code, false);
     e.run();
 }
 
