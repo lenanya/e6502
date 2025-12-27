@@ -5,45 +5,52 @@ use std::{env::args, fs, process};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
-// 8 Kibibytes
+/// 8 Kibibytes
 static K8: usize = 0x2000;
-// 16 Kibibytes
+/// 16 Kibibytes
 static K16: usize = 0x4000;
-// 32 Kibibytes
+/// 32 Kibibytes
 static K32: usize = 0x8000;
-// 64 Kibibytes
+/// 64 Kibibytes
 static K64: usize = 0x10000;
 
-// Start of the ROM in internal memory
+/// Start of the ROM in internal memory
 static ROM_START: usize = K32;
-// Bottom of the stack
+/// Bottom of the stack
 static STACK_BASE: usize = 0x100;
-// Reset Vector
+/// Reset Vector low byte
 static RV_LOC_LOW: usize = 0xfffc;
+/// Reset Vector high byte
 static RV_LOC_HIGH: usize = 0xfffd;
 
-// The state of the emulator
+/// Mask for Break and Reserved bit, as they get ignored when 
+/// pulling SR off the stack
+static B_R_MASK: u8 = 0b00110000; 
+/// Mask to check if a number is negative by checking if the 7th bit is set
+static NEG_MASK: u8 = 0b10000000;
+
+/// Struct that contains all the methods and data of the Emulator
 struct Emulator {
-    // Accumulator
+    /// Accumulator
     a: u8,       
-    // X register       
+    /// X register       
     x: u8,   
-    // Y register           
+    /// Y register           
     y: u8,       
-    // Program Counter (Instruction Pointer)       
+    /// Program Counter (Instruction Pointer)       
     pc: u16,            
-    // Stack Pointer
+    /// Stack Pointer
     sp: u8,     
-    // Internal RAM and ROM        
+    /// Internal RAM and ROM        
     data: [u8; K64],    
-    // State Register (flags)
+    /// State Register (flags)
     sr: u8               
 }
 
 #[allow(non_camel_case_types)]
 #[repr(u8)]
 #[derive(Debug, FromPrimitive)]
-// An enum of all possible (legal) Opcodes
+/// An enum of all possible (legal) Opcodes
 enum Instruction {
     BRK         = 0x00,
     BPL         = 0x10,
@@ -210,7 +217,7 @@ enum Instruction {
 }
 
 #[repr(u8)]
-// Masks to work with single bits of the SR
+/// Masks to work with single bits of the SR
 enum SRMask {
     // Functions as the 8th bit of operations 
     Carry       = 0b00000001, 
@@ -230,14 +237,8 @@ enum SRMask {
     Negative    = 0b10000000   
 }
 
-// Mask for Break and Reserved bit, as they get ignored when 
-// pulling SR off the stack
-static B_R_MASK: u8 = 0b00110000; 
-// Mask to check if a number is negative by checking if the 7th bit is set
-static NEG_MASK: u8 = 0b10000000;
-
 #[derive(Debug)]
-// Possible "Errors" during execution
+/// Possible "Errors" during execution
 enum EErr {
     // invalid opcode
     IllegalInstruction(u8), 
@@ -252,6 +253,7 @@ impl From<u8> for EErr {
     }
 }
 
+// implementations of methods for Emulator
 impl Emulator {
     /// Initialise the Emulator struct with the supplied ROM data, get the Reset Vector and 
     /// initialise registers
@@ -1992,6 +1994,7 @@ fn load_rom(path: &str, rom: &mut [u8; K32]) -> Result<(), String> {
     
 }
 
+/// Entry point (duh)
 fn main() {
     let mut a = args().into_iter();
     let _program_name = a.next(); // ignored
