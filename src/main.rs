@@ -372,7 +372,7 @@ impl Emulator {
     /// Set the Negative and Zero SR flags according to the byte supplied
     fn set_nz(&mut self, byte: u8) {
         self.set_sr_bit(SRMask::Zero, byte == 0);
-        self.set_sr_bit(SRMask::Negative, byte != 0);
+        self.set_sr_bit(SRMask::Negative, (byte & NEG_MASK) != 0);
     }
 
     /**
