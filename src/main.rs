@@ -51,7 +51,7 @@ enum Instruction {
     LDA_X_IND   = 0xA1,
     LDA_IND_Y   = 0xB1,
     CMP_X_IND   = 0xC1,
-    CMD_IND_Y   = 0xD1,
+    CMP_IND_Y   = 0xD1,
     SBC_X_IND   = 0xE1,
     SBC_IND_Y   = 0xF1,
 
@@ -91,9 +91,9 @@ enum Instruction {
     ROR_ZPG     = 0x66,
     ROR_ZPG_X   = 0x76,
     STX_ZPG     = 0x86,
-    STX_ZPG_X   = 0x96,
+    STX_ZPG_Y   = 0x96,
     LDX_ZPG     = 0xA6,
-    LDX_ZPG_X   = 0xB6,
+    LDX_ZPG_Y   = 0xB6,
     DEC_ZPG     = 0xC6,
     DEC_ZPG_X   = 0xD6,
     INC_ZPG     = 0xE6,
@@ -296,11 +296,67 @@ impl Emulator {
         println!("#${:04X}", self.pc);
     }
 
+    fn x_ind(&mut self) -> u16 {
+        let ind = self.data[self.pc as usize].wrapping_add(self.x);
+        let addr = self.read_addr_1b(ind);
+        addr
+    }
+
+    fn ind_y(&mut self) -> u16 {
+        let ind = self.data[self.pc as usize];
+        let addr = self.read_addr_1b(ind).wrapping_add(self.y as u16);
+        addr
+    }
+
+    fn set_nz(&mut self, v: u8) {
+        self.set_sr_bit(SRMask::Zero, v == 0);
+        self.set_sr_bit(SRMask::Negative, v != 0);
+    }
+
+    fn adc(&mut self, v: u8) {
+        let c: u16 = if self.get_psr_bit(SRMask::Carry) {1} else {0};
+        let true_sum = self.a as u16 + v as u16 + c;
+        self.set_sr_bit(SRMask::Carry, true_sum > 0xff);
+        let res: u8 = (true_sum & 0xff) as u8;
+        self.set_sr_bit(SRMask::Overflow, false);
+        // overflow check 
+        if ((self.a & 0x80) == 0) & ((v & 0x80) == 0) { // both positive
+            // set overflow bit if res is negative (2 positives cant make a negative)
+            self.set_sr_bit(SRMask::Overflow, (res & 0x80) != 0); 
+        }
+        if ((self.a & 0x80) != 0) & ((v & 0x80) != 0) { // both negative
+            // set overflow bit if res is positive (2 negatives cant make a positive)
+            self.set_sr_bit(SRMask::Overflow, (res & 0x80) == 0)
+        }
+        self.a = res;
+        self.set_nz(self.a);
+    }
+
+    fn sbc(&mut self, v: u8) {
+        let c: u16 = if self.get_psr_bit(SRMask::Carry) { 1 } else { 0 };
+        let true_sum = self.a as u16 + (!v) as u16 + c;
+        self.set_sr_bit(SRMask::Carry, true_sum > 0xff);
+        let res = (true_sum & 0xff) as u8;
+        let is_a_neg = (self.a & 0x80) != 0;
+        let is_val_neg = (v & 0x80) != 0;
+        let is_res_neg = (res & 0x80) != 0;
+        self.set_sr_bit(SRMask::Overflow, false);
+        if is_a_neg != is_val_neg { // fuck this shit man
+            self.set_sr_bit(SRMask::Overflow, is_a_neg != is_res_neg);
+        }
+        self.a = res;
+        self.set_nz(self.a);
+    }
+
     fn exec_instruction(&mut self) -> Result<(), EErr> {
         let inst = self.read_instruction()?;
         print!("0x{:04X}: {:?} ", self.pc, inst);
 
         match inst {
+            Instruction::BRK => {
+                println!();
+                return Err(EErr::Break);
+            }
             Instruction::BPL => {
                 self.pc = self.pc.wrapping_add(1);
                 let cond = !self.get_psr_bit(SRMask::Negative);
@@ -386,8 +442,7 @@ impl Emulator {
                 self.pc = self.pc.wrapping_add(1);
                 let val: u8 = self.read_byte();
                 let res = self.y.wrapping_sub(val);
-                self.set_sr_bit(SRMask::Zero, res == 0);
-                self.set_sr_bit(SRMask::Negative, (res & 0x80) != 0);
+                self.set_nz(res);
                 self.set_sr_bit(SRMask::Carry, self.y >= val);
                 self.pc = self.pc.wrapping_add(1);
                 println!("{:02X}", val);
@@ -404,8 +459,7 @@ impl Emulator {
                 self.pc = self.pc.wrapping_add(1);
                 let val: u8 = self.read_byte();
                 let res = self.x.wrapping_sub(val);
-                self.set_sr_bit(SRMask::Zero, res == 0);
-                self.set_sr_bit(SRMask::Negative, (res & 0x80) != 0);
+                self.set_nz(res);
                 self.set_sr_bit(SRMask::Carry, self.y >= val);
                 self.pc = self.pc.wrapping_add(1);
                 println!("{:02X}", val);
@@ -419,27 +473,577 @@ impl Emulator {
             }
             Instruction::ORA_X_IND => {
                 self.pc = self.pc.wrapping_add(1);
-                let ind = self.data[self.pc as usize].wrapping_add(self.x);
-                let addr = self.read_addr_1b(ind);
-                let val = self.read_byte_at(addr);
+                let addr = self.x_ind();
+                let val = self.data[addr as usize];
                 self.a = self.a | val;
-                self.set_sr_bit(SRMask::Zero, self.a == 0);
-                self.set_sr_bit(SRMask::Negative, (self.a & 0x80) != 0);
+                self.set_nz(self.a);
                 self.pc = self.pc.wrapping_add(1);
-                println!("#${:02X}", ind);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ORA_IND_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.ind_y();
+                let val = self.data[addr as usize];
+                self.a = self.a | val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::AND_X_IND => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.x_ind();
+                let val = self.data[addr as usize];
+                self.a = self.a & val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::AND_IND_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.ind_y();
+                let val = self.data[addr as usize];
+                self.a = self.a & val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::EOR_X_IND => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.x_ind();
+                let val = self.data[addr as usize];
+                self.a = self.a ^ val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::EOR_IND_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.ind_y();
+                let val = self.data[addr as usize];
+                self.a = self.a ^ val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ADC_X_IND => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.x_ind();
+                let val = self.data[addr as usize];
+                self.adc(val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ADC_IND_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.ind_y();
+                let val = self.data[addr as usize];
+                self.adc(val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::STA_X_IND => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.x_ind();
+                self.data[addr as usize] = self.a;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::STA_IND_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.ind_y();
+                self.data[addr as usize] = self.a;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::LDA_X_IND => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.x_ind();
+                let val = self.data[addr as usize];
+                self.a = val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::LDA_IND_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.ind_y();
+                let val = self.data[addr as usize];
+                self.a = val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::CMP_X_IND => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.x_ind();
+                let val: u8 = self.data[addr as usize];
+                let res = self.a.wrapping_sub(val);
+                self.set_nz(res);
+                self.set_sr_bit(SRMask::Carry, self.a >= val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("{:04X}", addr);
+                Ok(())
+            }
+            Instruction::CMP_IND_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.ind_y();
+                let val: u8 = self.data[addr as usize];
+                let res = self.a.wrapping_sub(val);
+                self.set_nz(res);
+                self.set_sr_bit(SRMask::Carry, self.a >= val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("{:04X}", addr);
+                Ok(())
+            }
+            Instruction::SBC_X_IND => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.x_ind();
+                let val = self.data[addr as usize];
+                self.sbc(val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::SBC_IND_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.ind_y();
+                let val = self.data[addr as usize];
+                self.sbc(val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::LDX_IMM => {
+                self.pc = self.pc.wrapping_add(1);
+                let val = self.read_byte();
+                self.x = val;   
+                self.pc = self.pc.wrapping_add(1);
+                println!("#${:02X}", val);
+                Ok(())
+            }
+            Instruction::BIT_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let zpg_addr = self.read_byte();
+                let val = self.data[zpg_addr as usize];
+                self.set_sr_bit(SRMask::Zero, (self.a & val) == 0);
+                self.set_sr_bit(SRMask::Negative, (val & SRMask::Negative as u8) != 0);
+                self.set_sr_bit(SRMask::Overflow, (val & SRMask::Overflow as u8) != 0);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", zpg_addr);
+                Ok(())
+            }
+            Instruction::STY_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                self.data[addr as usize] = self.y;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::STY_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                self.data[addr as usize] = self.y;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::LDY_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                self.y = self.data[addr as usize];
+                self.pc = self.pc.wrapping_add(1);
+                self.set_nz(self.y);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::LDY_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                self.y = self.data[addr as usize];
+                self.pc = self.pc.wrapping_add(1);
+                self.set_nz(self.y);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::CPY_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                let res = self.y.wrapping_sub(val);
+                self.set_nz(res);
+                self.set_sr_bit(SRMask::Carry, self.y >= val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::CPX_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                let res = self.x.wrapping_sub(val);
+                self.set_nz(res);
+                self.set_sr_bit(SRMask::Carry, self.x >= val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ORA_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                self.a = self.a | val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ORA_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                self.a = self.a | val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::AND_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                self.a = self.a & val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::AND_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                self.a = self.a & val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::EOR_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                self.a = self.a ^ val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::EOR_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                self.a = self.a ^ val;
+                self.set_nz(self.a);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ADC_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                self.adc(val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ADC_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                self.adc(val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::STA_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                self.data[addr as usize] = self.a;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::STA_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                self.data[addr as usize] = self.a;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::LDA_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                self.a = self.data[addr as usize];
+                self.pc = self.pc.wrapping_add(1);
+                self.set_nz(self.y);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::LDA_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                self.a = self.data[addr as usize];
+                self.pc = self.pc.wrapping_add(1);
+                self.set_nz(self.y);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::CMP_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val: u8 = self.data[addr as usize];
+                let res = self.a.wrapping_sub(val);
+                self.set_nz(res);
+                self.set_sr_bit(SRMask::Carry, self.a >= val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("{:02X}", addr);
+                Ok(())
+            }
+            Instruction::CMP_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val: u8 = self.data[addr as usize];
+                let res = self.a.wrapping_sub(val);
+                self.set_nz(res);
+                self.set_sr_bit(SRMask::Carry, self.a >= val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("{:02X}", addr);
+                Ok(())
+            }
+            Instruction::SBC_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                self.sbc(val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::SBC_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                self.sbc(val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ASL_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                let val_shifted = (val as u16) << 1;
+                self.set_sr_bit(SRMask::Carry, val_shifted > 0xff);
+                let new_val = (val_shifted & 0xff) as u8;
+                self.set_nz(new_val);
+                self.data[addr as usize] = new_val;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ASL_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                let val_shifted = (val as u16) << 1;
+                self.set_sr_bit(SRMask::Carry, val_shifted > 0xff);
+                let new_val = (val_shifted & 0xff) as u8;
+                self.set_nz(new_val);
+                self.data[addr as usize] = new_val;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ROL_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                let c = if self.get_psr_bit(SRMask::Carry) {1} else {0};
+                let val_shifted = (val as u16) << 1;
+                let val_rotated = (val_shifted & 0xff) as u8 | c;
+                self.set_sr_bit(SRMask::Carry, val_shifted > 0xff);
+                self.set_nz(val_rotated);
+                self.data[addr as usize] = val_rotated;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ROL_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                let c = if self.get_psr_bit(SRMask::Carry) {1} else {0};
+                let val_shifted = (val as u16) << 1;
+                let val_rotated = (val_shifted & 0xff) as u8 | c;
+                self.set_sr_bit(SRMask::Carry, val_shifted > 0xff);
+                self.set_nz(val_rotated);
+                self.data[addr as usize] = val_rotated;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::LSR_ZPG => {
+                 self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                self.set_sr_bit(SRMask::Carry, (val & 0x01) != 0);
+                let new_val = val >> 1;
+                self.set_nz(new_val);
+                self.data[addr as usize] = new_val;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::LSR_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                self.set_sr_bit(SRMask::Carry, (val & 0x01) != 0);
+                let new_val = val >> 1;
+                self.set_nz(new_val);
+                self.data[addr as usize] = new_val;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ROR_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                let c = if self.get_psr_bit(SRMask::Carry) {1} else {0};
+                self.set_sr_bit(SRMask::Carry, (val & 0x01) != 0);
+                let val_shifted = val >> 1;
+                let val_rotated = val_shifted | c << 7;
+                self.set_nz(val_rotated);
+                self.data[addr as usize] = val_rotated;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::ROR_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                let c = if self.get_psr_bit(SRMask::Carry) {1} else {0};
+                self.set_sr_bit(SRMask::Carry, (val & 0x01) != 0);
+                let val_shifted = val >> 1;
+                let val_rotated = val_shifted | c << 7;
+                self.set_nz(val_rotated);
+                self.data[addr as usize] = val_rotated;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::STX_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                self.data[addr as usize] = self.x;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::STX_ZPG_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.y);
+                self.data[addr as usize] = self.x;
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::LDX_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                self.x = self.data[addr as usize];
+                self.pc = self.pc.wrapping_add(1);
+                self.set_nz(self.x);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::LDX_ZPG_Y => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.y);
+                self.x = self.data[addr as usize];
+                self.pc = self.pc.wrapping_add(1);
+                self.set_nz(self.x);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::DEC_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                let new_val = val.wrapping_sub(1);
+                self.data[addr as usize] = new_val;
+                self.set_nz(new_val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::DEC_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                let new_val = val.wrapping_sub(1);
+                self.data[addr as usize] = new_val;
+                self.set_nz(new_val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::INC_ZPG => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte();
+                let val = self.data[addr as usize];
+                let new_val = val.wrapping_add(1);
+                self.data[addr as usize] = new_val;
+                self.set_nz(new_val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
+                Ok(())
+            }
+            Instruction::INC_ZPG_X => {
+                self.pc = self.pc.wrapping_add(1);
+                let addr = self.read_byte().wrapping_add(self.x);
+                let val = self.data[addr as usize];
+                let new_val = val.wrapping_add(1);
+                self.data[addr as usize] = new_val;
+                self.set_nz(new_val);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:02X}", addr);
                 Ok(())
             }
 
+            
             Instruction::JMP_ABS => {
                 self.pc = self.pc.wrapping_add(1);
                 let addr = self.read_addr();
                 self.pc = addr;
                 println!("#${:04X}", addr);
                 Ok(())
-            }
-            Instruction::BRK => {
-                println!();
-                return Err(EErr::Break);
             }
             Instruction::LDA_IMM => {
                 self.pc = self.pc.wrapping_add(1);
@@ -457,16 +1061,6 @@ impl Emulator {
                 self.pc = self.pc.wrapping_add(2);
                 Ok(())
             }
-            Instruction::STA_ZPG => {
-                self.pc = self.pc.wrapping_add(1);
-                let addr = u16::from(self.read_byte());
-                let zpg_addr = usize::from(addr);
-                println!("${:02X}", addr);
-                self.data[zpg_addr] = self.a;
-                self.pc = self.pc.wrapping_add(1);
-                Ok(())
-            }
-            
             Instruction::NOP => {
                 self.pc = self.pc.wrapping_add(1);
                 println!();
