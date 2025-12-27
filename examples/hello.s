@@ -1,3 +1,4 @@
+ ;; assemble this with `vasm6502_oldstyle -dotdir -Fbin -o hello.bin hello.s`
  ;; make sure vasm knows
  ;; this will be at 0x8000
  ;; in the emulator
