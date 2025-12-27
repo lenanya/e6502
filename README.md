@@ -20,7 +20,7 @@ a 6502 emulator
 ## Reset Vector: 
 `0xfffc - 0xfffd` (in a ROM: `0x7ffc - 0x7ffd`)
 
-use [vasm6502](http://sun.hasenbraten.de/vasm/) for assembling
+use [vasm6502_oldstyle](http://sun.hasenbraten.de/vasm/) for assembling
 
 ### References
 - [Instruction Set](https://www.masswerk.at/6502/6502_instruction_set.html)
