@@ -8,7 +8,11 @@ a 6502 emulator
 
 `0x0100 - 0x01ff`: Stack
 
-`0x0200 - 0x7fff`: unused (for now)
+`0x0200 - 0x4000`: misc RAM
+
+`0x4000 - 0x6000`: reserved1
+
+`0x6000 - 0x8000`: reserved2 
 
 `0x8000 - 0xffff`: ROM (loaded via file, 32KiB)
 
