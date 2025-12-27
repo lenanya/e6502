@@ -50,6 +50,7 @@ struct Emulator {
 }
 
 #[derive(Clone, Copy)]
+/// Address Bus which handles all reads and writes, including IO
 struct Bus {
     ram: [u8; K16],
     reserved1: [u8; K8],
@@ -263,7 +264,10 @@ impl From<u8> for EErr {
     }
 }
 
+
+// Methods for the bus
 impl Bus {
+    /// initialise the bus, cloning the ROM into the correct section
     pub fn init(rom: [u8; K32]) -> Bus {
         Bus {
             ram: [0; K16],
@@ -273,6 +277,8 @@ impl Bus {
         }
     }
 
+    /// Read a byte from an address on the bus
+    /// which will redirect to RAM, ROM or the reserved spaces IO
     pub fn read(&self, addr: u16) -> u8 {
         match addr {
             // RAM
@@ -294,6 +300,10 @@ impl Bus {
         }
     }
 
+    /**
+    Write a byte to an address on the bus
+    which will redirect it to RAM or the reserved spaces (IO)
+    */
     pub fn write(&mut self, addr: u16, byte: u8) {
         match addr {
             // RAM
@@ -318,6 +328,9 @@ impl Bus {
     }
 }
 
+
+/// Macro to replace all the instruction printing
+/// which automatically checks if self.debug is true in Emulator
 macro_rules! trace {
     ($self:ident, $($arg:tt)*) => {
         if $self.debug {
@@ -351,6 +364,7 @@ impl Emulator {
         }
     }
 
+    /// Print the current state of the CPU
     fn print_state(&mut self) {
         println!("-----------");
         println!("A:  0x{:02X}", self.a);
