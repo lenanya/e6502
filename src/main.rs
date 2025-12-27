@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::{env::args, fs, process};
+
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -183,7 +185,7 @@ enum Instruction {
     DEC_ABS     = 0xCE,
     DEC_ABS_X   = 0xDE,
     INC_ABS     = 0xEE,
-    IND_ABS_X   = 0xFE
+    INC_ABS_X   = 0xFE
 }
 
 #[repr(u8)]
@@ -203,6 +205,7 @@ static B_R_MASK: u8 = 0b00110000;
 #[derive(Debug)]
 enum EErr {
     IllegalInstruction(u8),
+
     Break,
 }
 
@@ -243,6 +246,13 @@ impl Emulator {
 
     fn read_byte_at(&mut self, addr: u16) -> u8 {
         self.data[addr as usize]
+    }
+
+    fn write_byte_at(&mut self, addr: u16, v: u8) {
+        if addr > 0x8000 {
+            return
+        }
+        self.data[addr as usize] = v;
     }
 
     fn read_addr(&mut self) -> u16 {
@@ -420,17 +430,17 @@ impl Emulator {
     }
 
     fn sty(&mut self, addr: u16) {
-        self.data[addr as usize] = self.y;
+        self.write_byte_at(addr, self.y);
         self.pc = self.pc.wrapping_add(1);
     }
 
     fn sta(&mut self, addr: u16) {
-        self.data[addr as usize] = self.a;
+        self.write_byte_at(addr, self.a);
         self.pc = self.pc.wrapping_add(1);
     }
 
     fn stx(&mut self, addr: u16) {
-        self.data[addr as usize] = self.x;
+        self.write_byte_at(addr, self.x);
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -446,7 +456,7 @@ impl Emulator {
     fn rol_addr(&mut self, addr: u16) {
         let v = self.read_byte_at(addr);
         let v_rotated = self.rol(v);
-        self.data[addr as usize] = v_rotated;
+        self.write_byte_at(addr, v_rotated);
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -462,7 +472,7 @@ impl Emulator {
     fn ror_addr(&mut self, addr: u16) {
         let v = self.read_byte_at(addr);
         let v_rotated = self.ror(v);
-        self.data[addr as usize] = v_rotated;
+        self.write_byte_at(addr, v_rotated);
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -476,7 +486,7 @@ impl Emulator {
     fn lsr_addr(&mut self, addr: u16) {
         let v = self.read_byte_at(addr);
         let new_v = self.lsr(v);
-        self.data[addr as usize] = new_v;
+        self.write_byte_at(addr, new_v);
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -491,14 +501,14 @@ impl Emulator {
     fn asl_addr(&mut self, addr: u16) {
         let v = self.read_byte_at(addr);
         let new_v = self.asl(v);
-        self.data[addr as usize] = new_v;
+        self.write_byte_at(addr, new_v);
         self.pc = self.pc.wrapping_add(1);
     }
 
     fn dec(&mut self, addr: u16) {
         let v = self.read_byte_at(addr);
         let new_v = v.wrapping_sub(1);
-        self.data[addr as usize] = new_v;
+        self.write_byte_at(addr, new_v);
         self.set_nz(new_v);
         self.pc = self.pc.wrapping_add(1);
     }
@@ -506,7 +516,7 @@ impl Emulator {
     fn inc(&mut self, addr: u16) {
         let v = self.read_byte_at(addr);
         let new_v = v.wrapping_add(1);
-        self.data[addr as usize] = new_v;
+        self.write_byte_at(addr, new_v);
         self.set_nz(new_v);
         self.pc = self.pc.wrapping_add(1);
     }
@@ -1255,14 +1265,14 @@ impl Emulator {
                 let addr = self.read_addr();
                 let dest = self.read_addr_at(addr);
                 self.pc = dest;
-                println!("{:04X}", dest);
+                println!("${:04X}", dest);
                 Ok(())
             }
             Instruction::STY_ABS => {
                 let addr = self.read_addr();
                 self.sty(addr);
                 self.pc = self.pc.wrapping_add(1);
-                println!("{:04X}", addr);
+                println!("${:04X}", addr);
                 Ok(())
             }
             Instruction::LDY_ABS => {
@@ -1270,7 +1280,7 @@ impl Emulator {
                 let v = self.read_byte_at(addr);
                 self.ldy(v);
                 self.pc = self.pc.wrapping_add(1);
-                println!("{:04X}", addr);
+                println!("${:04X}", addr);
                 Ok(())
             }
             Instruction::LDY_ABS_X => {
@@ -1278,7 +1288,7 @@ impl Emulator {
                 let v = self.read_byte_at(addr);
                 self.ldy(v);
                 self.pc = self.pc.wrapping_add(1);
-                println!("{:04X}", addr);
+                println!("${:04X}", addr);
                 Ok(())
             }
             Instruction::CPY_ABS => {
@@ -1286,7 +1296,7 @@ impl Emulator {
                 let v = self.read_byte_at(addr);
                 self.cpy(v);
                 self.pc = self.pc.wrapping_add(1);
-                println!("{:04X}", addr);
+                println!("${:04X}", addr);
                 Ok(())
             }
             Instruction::CPX_ABS => {
@@ -1294,20 +1304,237 @@ impl Emulator {
                 let v = self.read_byte_at(addr);
                 self.cpx(v);
                 self.pc = self.pc.wrapping_add(1);
-                println!("{:04X}", addr);
-                Ok(())
-            }
-
-            Instruction::STA_ABS => {
-                let addr = self.read_addr();
-                self.sta(addr);
                 println!("${:04X}", addr);
                 Ok(())
             }
-            
-            _ => {
-                println!("... but instruction not supported yet :(");
-                Err(EErr::Break)
+            Instruction::ORA_ABS => {
+                let addr = self.read_addr();
+                let v = self.read_byte_at(addr);
+                self.ora(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ORA_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let v = self.read_byte_at(addr);
+                self.ora(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::AND_ABS => {
+                let addr = self.read_addr();
+                let v = self.read_byte_at(addr);
+                self.and(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::AND_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let v = self.read_byte_at(addr);
+                self.and(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::EOR_ABS => {
+                let addr = self.read_addr();
+                let v = self.read_byte_at(addr);
+                self.eor(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::EOR_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let v = self.read_byte_at(addr);
+                self.eor(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ADC_ABS => {
+                let addr = self.read_addr();
+                let v = self.read_byte_at(addr);
+                self.adc(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ADC_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let v = self.read_byte_at(addr);
+                self.adc(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::STA_ABS => {
+                let addr = self.read_addr();
+                self.sta(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::STA_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                self.sta(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::LDA_ABS => {
+                let addr = self.read_addr();
+                let v = self.read_byte_at(addr);
+                self.lda(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::LDA_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let v = self.read_byte_at(addr);
+                self.lda(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::CMP_ABS => {
+                let addr = self.read_addr();
+                let v = self.read_byte_at(addr);
+                self.cmp(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::CMP_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let v = self.read_byte_at(addr);
+                self.cmp(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::SBC_ABS => {
+                let addr = self.read_addr();
+                let v = self.read_byte_at(addr);
+                self.sbc(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::SBC_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let v = self.read_byte_at(addr);
+                self.sbc(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ASL_ABS => {
+                let addr = self.read_addr();
+                self.asl_addr(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ASL_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                self.asl_addr(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ROL_ABS => {
+                let addr = self.read_addr();
+                self.rol_addr(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ROL_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                self.rol_addr(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::LSR_ABS => {
+                let addr = self.read_addr();
+                self.lsr_addr(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::LSR_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                self.lsr_addr(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ROR_ABS => {
+                let addr = self.read_addr();
+                self.ror_addr(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::ROR_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                self.ror_addr(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::STX_ABS => {
+                let addr = self.read_addr();
+                self.stx(addr);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::LDX_ABS => {
+                let addr = self.read_addr();
+                let v = self.read_byte_at(addr);
+                self.ldx(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::LDX_ABS_Y => {
+                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let v = self.read_byte_at(addr);
+                self.ldx(v);
+                self.pc = self.pc.wrapping_add(1);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::DEC_ABS => {
+                let addr = self.read_addr();
+                self.dec(addr);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::DEC_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                self.dec(addr);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::INC_ABS => {
+                let addr = self.read_addr();
+                self.inc(addr);
+                println!("${:04X}", addr);
+                Ok(())
+            }
+            Instruction::INC_ABS_X => {
+                let addr = self.read_addr().wrapping_add(self.x as u16);
+                self.inc(addr);
+                println!("${:04X}", addr);
+                Ok(())
             }
         }
     }
@@ -1329,16 +1556,31 @@ impl Emulator {
     }
 }
 
-fn main() {
-    let mut code: [u8; K32] = [0x00; K32];
-    code[0xfffc - K32] = 0x00;
-    code[0xfffd - K32] = 0x80;
-    code[0] = 0xA9; code[1] = 0xFF;                     // lda #$ff
-    code[2] = 0x8D; code[3] = 0x00; code[4] = 0x20;     // sta $2000
-    code[5] = 0xA9; code[6] = 0x01;                     // lda $1
-    code[7] = 0x85; code[8] = 0x00;                     // sta zp[0]
-    // code[9] = 0x4C; code[10] = 0x00; code[11] = 0x80;   // jmp #$8000                     
+fn load_rom(path: &str, rom: &mut [u8; K32]) -> Result<(), String> {
+    let bytes = fs::read(path).map_err(|e| format!("IO Error: {}", e))?;
 
+    for (i, byte) in bytes.iter().enumerate() {
+        if i < K32 {
+            rom[i as usize] = *byte;
+        } else {
+            return Err("ROM is larger than 32KiB".to_string())
+        }
+    }
+    Ok(())
+    
+}
+
+fn main() {
+    let mut a = args().into_iter();
+    let _program_name = a.next();
+    let rom_name = a.next().expect("You need to supply a 32KiB ROM");
+    let mut code: [u8; K32] = [0x00; K32];
+    
+    load_rom(&rom_name, &mut code).unwrap_or_else(|e| {
+        eprintln!("[ERROR]: {}", e);
+        process::exit(1);
+    });
+    
     let mut e = Emulator::init(code);
     e.run();
 }
