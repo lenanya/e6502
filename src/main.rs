@@ -42,9 +42,17 @@ struct Emulator {
     /// Stack Pointer
     sp: u8,     
     /// Internal RAM and ROM        
-    data: [u8; K64],    
+    bus: Bus,   
     /// State Register (flags)
     sr: u8               
+}
+
+#[derive(Clone, Copy)]
+struct Bus {
+    ram: [u8; K16],
+    reserved1: [u8; K8],
+    reserved2: [u8; K8],
+    rom: [u8; K32]
 }
 
 #[allow(non_camel_case_types)]
@@ -253,23 +261,70 @@ impl From<u8> for EErr {
     }
 }
 
+impl Bus {
+    pub fn init(rom: [u8; K32]) -> Bus {
+        Bus {
+            ram: [0; K16],
+            reserved1: [0; K8],
+            reserved2: [0; K8],
+            rom: rom.clone()
+        }
+    }
+
+    pub fn read(&self, addr: u16) -> u8 {
+        match addr {
+            // RAM
+            0x0000..=0x3FFF => {
+                self.ram[addr as usize]
+            }
+            // reserved1
+            0x4000..=0x5FFF => {
+                0x00 // placeholder
+            }
+            // reserved2
+            0x6000..=0x7FFF => {
+                0x00 // placeholder
+            }
+            // ROM 
+            0x8000..=0xFFFF => {
+                self.rom[addr as usize - ROM_START]
+            }
+        }
+    }
+
+    pub fn write(&mut self, addr: u16, byte: u8) {
+        match addr {
+            // RAM
+            0x0000..=0x3FFF => {
+                self.ram[addr as usize] = byte;
+            }
+            // reserved1
+            0x4000..=0x5FFF => {
+                
+            }
+            // reserved2
+            0x6000..=0x7FFF => {
+                
+            }
+            // ROM 
+            0x8000..=0xFFFF => {
+                self.rom[addr as usize - ROM_START] = byte;
+            }
+        }
+    }
+}
+
 // implementations of methods for Emulator
 impl Emulator {
     /// Initialise the Emulator struct with the supplied ROM data, get the Reset Vector and 
     /// initialise registers
     fn init(code: [u8; K32]) -> Emulator {
-        let mut data: [u8; K64] = [0; K64]; // create the internal RAM + ROM
-
-        let mut i: usize = ROM_START; // start at address 0x8000 
-        for b in code {         // transfer ROM to internal memory
-            data[i] = b;
-            i += 1;
-        }
+        let bus = Bus::init(code);
 
         // get the Reset Vector address from the ROM
         // Reset Vector is at 0xfffc - 0xfffd
-        let rv_low = data[RV_LOC_LOW] as u16;
-        let rv_high = data[RV_LOC_HIGH] as u16;
+        let rv_low = bus.read(RV_LOC_LOW as u16) as u16;
+        let rv_high = bus.read(RV_LOC_HIGH as u16) as u16;
         let rv: u16 = rv_high << 8 | rv_low;
 
         Emulator {
@@ -278,27 +333,34 @@ impl Emulator {
             y: 0,
             pc: rv,   // start execution at the address in the RV
             sp: 0xff, // stack starts at 0x1ff since it grows down
-            data: data.clone(),
+            bus: bus.clone(),
             sr: SRMask::Reserved as u8 // bit 5 is always set when pushing so set it
         }
     }
 
+    fn print_state(&mut self) {
+        println!("-----------");
+        println!("A:  0x{:02X}", self.a);
+        println!("X:  0x{:02X}", self.x);
+        println!("Y:  0x{:02X}", self.y);
+        println!("SP: 0x{:02X}", self.sp);
+        println!("SR: 0b{:08b}", self.sr);
+        println!("-----------");
+    }
+
     /// Read the byte at PC 
     fn read_byte(&mut self) -> u8 {
-        self.data[self.pc as usize]
+        self.bus.read(self.pc)
     }
 
     /// Read the byte at the supplied address
     fn read_byte_at(&mut self, addr: u16) -> u8 {
-        self.data[addr as usize]
+        self.bus.read(addr)
     }
 
     /// Write supplied byte to supplied address
     fn write_byte_at(&mut self, addr: u16, byte: u8) {
-        if addr >= ROM_START as u16 { // ROM is read only
-            return
-        }
-        self.data[addr as usize] = byte;
+        self.bus.write(addr, byte);
     }
 
     /// Read an address at PC and PC+1, handle little endianness
@@ -345,13 +407,13 @@ impl Emulator {
 
     /// Push a byte to the stack, stack wraps and grows down
     fn push_to_stack(&mut self, byte: u8) {
-        self.data[STACK_BASE | self.sp as usize] = byte;
+        self.bus.write(STACK_BASE as u16 | self.sp as u16, byte);
         self.sp = self.sp.wrapping_sub(1); // automatically handles the wrapping since sp is u8
     }
 
     /// Pull a byte from the stack
     fn pop_from_stack(&mut self) -> u8 {
-        let byte = self.data[STACK_BASE | (self.sp) as usize];
+        let byte = self.bus.read(STACK_BASE as u16 | (self.sp) as u16);
         self.sp = self.sp.wrapping_add(1); // automatic wrapping again
         byte
     }
@@ -359,14 +421,14 @@ impl Emulator {
     /// Get an address stored on the zeropage in Indirect, X mode
     fn x_ind(&mut self) -> u16 {
         // read zeropage address at PC, then add x
-        let ind = self.data[self.pc as usize].wrapping_add(self.x); // zeropage wraps
+        let ind = self.bus.read(self.pc).wrapping_add(self.x); // zeropage wraps
         self.read_addr_at(ind as u16) // read the address stored there
     }
 
     /// Get an address stored on the zeropage in Indirect, Y Indexed mode
     fn ind_y(&mut self) -> u16 {
         // read zeropage address at PC
-        let ind = self.data[self.pc as usize];
+        let ind = self.bus.read(self.pc);
         // get the address stored there and add Y to it to index
         self.read_addr_at(ind as u16).wrapping_add(self.y as u16)
     }
@@ -461,7 +523,7 @@ impl Emulator {
         let res = self.a.wrapping_sub(byte); // get result 
         self.set_nz(res); // set flags based on result
         // if result is larger than byte it wrapped
-        self.set_sr_bit(SRMask::Carry, res >= byte);
+        self.set_sr_bit(SRMask::Carry, self.a >= byte);
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -475,7 +537,7 @@ impl Emulator {
     fn cpy(&mut self, byte: u8) {
         let res = self.y.wrapping_sub(byte);
         self.set_nz(res);
-        self.set_sr_bit(SRMask::Carry, res >= byte);
+        self.set_sr_bit(SRMask::Carry, self.y >= byte);
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -489,7 +551,7 @@ impl Emulator {
     fn cpx(&mut self, byte: u8) {
         let res = self.x.wrapping_sub(byte);
         self.set_nz(res);
-        self.set_sr_bit(SRMask::Carry, res >= byte);
+        self.set_sr_bit(SRMask::Carry, self.x >= byte);
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -736,6 +798,7 @@ impl Emulator {
     Execute the Instruction at PC, returns EErr on illegal opcode or BRK
     */
     fn exec_instruction(&mut self) -> Result<(), EErr> {
+        self.print_state();
         // get the opcode, propagate error if illegal
         let inst = self.read_instruction()?; 
         // print the current PC, and the instruction read
@@ -848,7 +911,7 @@ impl Emulator {
             }
             Instruction::BNE => {
                 // branch on zero == 1 (Values were not equal in comparison)
-                let cond = self.get_psr_bit(SRMask::Zero);
+                let cond = !self.get_psr_bit(SRMask::Zero);
                 self.branch(cond);
                 println!("#${:04X}", self.pc);
                 Ok(())
@@ -862,7 +925,7 @@ impl Emulator {
             }
             Instruction::BEQ => {
                 // branch on zero == 0 (Values were equal in comparison)
-                let cond = !self.get_psr_bit(SRMask::Zero);
+                let cond = self.get_psr_bit(SRMask::Zero);
                 self.branch(cond);
                 println!("#${:04X}", self.pc);
                 Ok(())
