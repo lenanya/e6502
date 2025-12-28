@@ -312,6 +312,10 @@ impl Bus {
                 if matches!(addr, 0x6001..=0x60FF) {
                     return self.gpu[addr as usize - 0x6000]
                 }
+                // requested key
+                if addr == 0x6100 {
+                    return self.gpu[addr as usize - 0x6000]
+                }
                 // otherwise just 0 for now
                 0x00
             }
@@ -382,6 +386,15 @@ impl Bus {
                                 unsafe {
                                     // run command
                                     raylib::ffi::DrawRectangle(x as i32, y as i32, w as i32, h as i32, col);
+                                }
+                            }
+                            0xDE => {
+                                // get the key the program wants to know
+                                let key = self.read(0x6001);
+                                unsafe {
+                                    let is_down = raylib::ffi::IsKeyDown(key as i32);
+                                    // set whether key is down or not
+                                    self.gpu[0x100] = if is_down {0x01} else {0x0};
                                 }
                             }
                             _ => {}

@@ -97,7 +97,7 @@ rect:
   sta $6000
   rts
 
-window_title: .asciiz "Hello from 6502 Assembly"
+window_title: .asciiz "Bounce"
   .org $fff0 ; data for gpu
   .byte $01 ; 1 byte
   .word 255 ; 2 bytes
