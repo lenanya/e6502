@@ -2,6 +2,8 @@ rect_x = $200
 rect_y = $201
 rect_w = $202
 rect_h = $203
+rect_sx = $204
+rect_sy = $205
  
   .org $8000
 reset:
@@ -13,11 +15,44 @@ reset:
   lda #15
   sta rect_w 
   sta rect_h 
+  ; set speeds
+  lda #1
+  sta rect_sx
+  sta rect_sy
   ; main loop
 main:
   ; move rectangle
-  inc rect_x
-  inc rect_y
+  lda rect_x
+  clc 
+  adc rect_sx ; add speed
+  sta rect_x
+  cmp #$f0 ; larger than 255 - size?
+  bcs flip_x ; flip speed
+  cmp #$1 ; larger than 1?
+  bcs do_y ; dont flip
+
+flip_x:
+  lda rect_sx
+  ; 0b0000 0001 -> 1111 1111 (1 -> 255)
+  ; 0b1111 1111 -> 0000 0001 (255 -> 1)
+  ; adding 255 is the same as doing -1
+  ; due to wrapping
+  EOR #$fe    
+  sta rect_sx
+do_y:
+  lda rect_y
+  clc
+  adc rect_sy 
+  sta rect_y
+  cmp #$f0
+  bcs flip_y
+  cmp #$1
+  bcs draw
+
+flip_y:
+  lda rect_sy
+  EOR #$fe
+  sta rect_sy
 draw:
   lda #$bd ; BeginDrawing
   sta $6000
