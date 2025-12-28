@@ -14,7 +14,7 @@ reset:
   ; the address we just stored
   LDA #$00
   JSR puts
-  jmp reset
+  brk
 
   ; write a char to stdout
   ; A -> char
