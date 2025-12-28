@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::{env::args, fs, process};
+use raylib;
 
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -22,6 +23,15 @@ static STACK_BASE: usize = 0x100;
 static RV_LOC_LOW: usize = 0xfffc;
 /// Reset Vector high byte
 static RV_LOC_HIGH: usize = 0xfffd;
+/// GPU Flag bytes
+static GPU_LOC: usize = 0xfff0;
+/// Window Width low byte
+static W_W_LOC: usize = 0xfff1;
+/// Window Height low byte
+static W_H_LOC: usize = 0xfff3;
+/// Window title location low byte
+static W_T_LOC: usize = 0xfff5;
+
 
 /// Mask for Break and Reserved bit, as they get ignored when 
 /// pulling SR off the stack
@@ -46,7 +56,10 @@ struct Emulator {
     /// State Register (flags)
     sr: u8,  
     /// Whether to print instructions and state or not
-    debug: bool            
+    debug: bool,
+    /// Whether the GPU is enabled
+    graphical: bool,
+
 }
 
 #[derive(Clone, Copy)]
@@ -54,8 +67,9 @@ struct Emulator {
 struct Bus {
     ram: [u8; K16],
     reserved1: [u8; K8],
-    reserved2: [u8; K8],
-    rom: [u8; K32]
+    gpu: [u8; K8],
+    rom: [u8; K32],
+    gpu_enable: bool
 }
 
 #[allow(non_camel_case_types)]
@@ -272,13 +286,16 @@ impl Bus {
         Bus {
             ram: [0; K16],
             reserved1: [0; K8],
-            reserved2: [0; K8],
-            rom: rom.clone()
+            gpu: [0; K8],
+            rom: rom.clone(),
+            gpu_enable: false
         }
     }
 
-    /// Read a byte from an address on the bus
-    /// which will redirect to RAM, ROM or the reserved spaces IO
+    /**
+    Read a byte from an address on the bus
+    which will redirect to RAM, ROM or the reserved spaces IO
+    */
     pub fn read(&self, addr: u16) -> u8 {
         match addr {
             // RAM
@@ -289,9 +306,14 @@ impl Bus {
             0x4000..=0x5FFF => {
                 0x00 // placeholder
             }
-            // reserved2
+            // gpu
             0x6000..=0x7FFF => {
-                0x00 // placeholder
+                // raylib function call arguments
+                if matches!(addr, 0x6001..=0x60FF) {
+                    return self.gpu[addr as usize - 0x6000]
+                }
+                // otherwise just 0 for now
+                0x00
             }
             // ROM 
             0x8000..=0xFFFF => {
@@ -316,13 +338,69 @@ impl Bus {
                     print!("{}", byte as char);
                 }
             }
-            // reserved2
+            // gpu
             0x6000..=0x7FFF => {
-                
+                // only do this if gpu is enabled
+                if self.gpu_enable {
+                    // 0x6000 is like the "Enable Pin" of the "GPU"
+                    if addr == 0x6000 {
+                        match byte {
+                            0xBD => {
+                                unsafe {
+                                    raylib::ffi::BeginDrawing();
+                                }
+                            }
+                            0xED => {
+                                unsafe {
+                                    raylib::ffi::EndDrawing();
+                                }
+                            }
+                            0xCB => {
+                                // get colour components
+                                let r = self.read(0x6001); 
+                                let g = self.read(0x6002);
+                                let b = self.read(0x6003);
+                                // make colour
+                                let col = raylib::ffi::Color {r, g, b, a: 0xFF};
+                                unsafe {
+                                    // run command
+                                    raylib::ffi::ClearBackground(col);
+                                }
+                            }
+                            0xD5 => {
+                                // read rectangle position and size
+                                let x = self.read(0x6001); 
+                                let y = self.read(0x6002);
+                                let w = self.read(0x6003);
+                                let h = self.read(0x6004);
+                                // get colour components
+                                let r = self.read(0x6005); 
+                                let g = self.read(0x6006);
+                                let b = self.read(0x6007);
+                                // make colour
+                                let col = raylib::ffi::Color {r, g, b, a: 0xFF};
+                                unsafe {
+                                    // run command
+                                    raylib::ffi::DrawRectangle(x as i32, y as i32, w as i32, h as i32, col);
+                                }
+                            }
+                            _ => {}
+                        }
+                        // clear arguments after a call
+                        for i in 0x6001..=0x60FF {
+                            self.write(i, 0x00);
+                        }
+                    }   
+
+                }
+                // 0x6001 - 0x60FF -> Arguments to GPU calls
+                if matches!(addr, 0x6001..=0x60FF) {
+                    self.gpu[addr as usize - 0x6000] = byte;
+                }
             }
             // ROM 
             0x8000..=0xFFFF => {
-                self.rom[addr as usize - ROM_START] = byte;
+                // you cant write to ROM, but also dont get an error
             }
         }
     }
@@ -344,13 +422,16 @@ impl Emulator {
     /// Initialise the Emulator struct with the supplied ROM data, get the Reset Vector and 
     /// initialise registers
     fn init(code: [u8; K32], debug: bool) -> Emulator {
-        let bus = Bus::init(code);
+        let mut bus = Bus::init(code);
 
         // get the Reset Vector address from the ROM
         // Reset Vector is at 0xfffc - 0xfffd
         let rv_low = bus.read(RV_LOC_LOW as u16) as u16;
         let rv_high = bus.read(RV_LOC_HIGH as u16) as u16;
         let rv: u16 = rv_high << 8 | rv_low;
+
+        let use_graphical = bus.read(GPU_LOC as u16) != 0;
+        bus.gpu_enable = use_graphical;
 
         Emulator {
             a: 0,
@@ -360,7 +441,8 @@ impl Emulator {
             sp: 0xff, // stack starts at 0x1ff since it grows down
             bus: bus.clone(),
             sr: SRMask::Reserved as u8, // bit 5 is always set when pushing so set it
-            debug: debug
+            debug: debug,
+            graphical: use_graphical // whether to use raylib
         }
     }
 
@@ -391,7 +473,7 @@ impl Emulator {
     }
 
     /// Read an address at PC and PC+1, handle little endianness
-    fn read_addr(&mut self) -> u16 {
+    fn read_word(&mut self) -> u16 {
         let low = self.read_byte() as u16;
         let addr = self.pc;
         let high = self.read_byte_at(addr + 1) as u16;
@@ -399,14 +481,14 @@ impl Emulator {
     }
 
     /// Read an address at pos and pos+1
-    fn read_addr_at(&mut self, pos: u16) -> u16 {
+    fn read_word_at(&mut self, pos: u16) -> u16 {
         let low = self.read_byte_at(pos) as u16;
         let high = self.read_byte_at(pos.wrapping_add(1)) as u16;
         high << 8 | low
     }
 
     /// Pop an address off the stack
-    fn read_addr_from_stack(&mut self) -> u16 {
+    fn read_word_from_stack(&mut self) -> u16 {
         let addr_low = self.pop_from_stack() as u16; // low first, little endian
         let addr_high = self.pop_from_stack() as u16;
         addr_high << 8 | addr_low
@@ -449,7 +531,7 @@ impl Emulator {
     fn x_ind(&mut self) -> u16 {
         // read zeropage address at PC, then add x
         let ind = self.bus.read(self.pc).wrapping_add(self.x); // zeropage wraps
-        self.read_addr_at(ind as u16) // read the address stored there
+        self.read_word_at(ind as u16) // read the address stored there
     }
 
     /// Get an address stored on the zeropage in Indirect, Y Indexed mode
@@ -457,7 +539,7 @@ impl Emulator {
         // read zeropage address at PC
         let ind = self.bus.read(self.pc);
         // get the address stored there and add Y to it to index
-        self.read_addr_at(ind as u16).wrapping_add(self.y as u16)
+        self.read_word_at(ind as u16).wrapping_add(self.y as u16)
     }
 
     /// Set the Negative and Zero SR flags according to the byte supplied
@@ -853,7 +935,7 @@ impl Emulator {
             Instruction::JSR => {
                 // jump to subroutine
                 // read address of subroutine to jump to
-                let addr = self.read_addr();
+                let addr = self.read_word();
 
                 // keeping the logic as in the actual 6502
                 // cause for some reason the other increment is done in RTS
@@ -883,7 +965,7 @@ impl Emulator {
                 let new_sr = self.pop_from_stack();
                 self.sr = new_sr;
                 // get return address from stack and jump
-                self.pc = self.read_addr_from_stack();
+                self.pc = self.read_word_from_stack();
                 trace!(self, "-> ${:04X}", self.pc);
                 Ok(())
             }
@@ -897,7 +979,7 @@ impl Emulator {
             Instruction::RTS => {
                 // return from subroutine
                 // get return address
-                let new_pc = self.read_addr_from_stack();
+                let new_pc = self.read_word_from_stack();
 
                 // we increment pc by 1 so we dont execute the last byte of the address
                 // that the JSR read
@@ -1536,7 +1618,7 @@ impl Emulator {
             }
             Instruction::ORA_ABS_Y => {
                 // perform an OR with accumulator and value at absolute address + Y
-                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let addr = self.read_word().wrapping_add(self.y as u16);
                 let byte = self.read_byte_at(addr);
                 self.ora(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1552,7 +1634,7 @@ impl Emulator {
             }
             Instruction::AND_ABS_Y => {
                 // perform an AND with accumulator and value at absolute address + Y
-                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let addr = self.read_word().wrapping_add(self.y as u16);
                 let byte = self.read_byte_at(addr);
                 self.and(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1568,7 +1650,7 @@ impl Emulator {
             }
             Instruction::EOR_ABS_Y => {
                 // perform an exclusive OR with Accumulator and value at absolute address + Y
-                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let addr = self.read_word().wrapping_add(self.y as u16);
                 let byte = self.read_byte_at(addr);
                 self.eor(byte);
                 self.pc = self.pc.wrapping_add(1); 
@@ -1584,7 +1666,7 @@ impl Emulator {
             }
             Instruction::ADC_ABS_Y => {
                 // perform an add with carry on Accumulator and value at absolute address + Y
-                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let addr = self.read_word().wrapping_add(self.y as u16);
                 let byte = self.read_byte_at(addr);
                 self.adc(byte);
                 self.pc = self.pc.wrapping_add(1); 
@@ -1593,7 +1675,7 @@ impl Emulator {
             }
             Instruction::STA_ABS_Y => {
                 // store Accumulator at absolute address + Y
-                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let addr = self.read_word().wrapping_add(self.y as u16);
                 self.sta(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1608,7 +1690,7 @@ impl Emulator {
             }
             Instruction::LDA_ABS_Y => {
                 // load value at absolute address + Y into Accumulator
-                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let addr = self.read_word().wrapping_add(self.y as u16);
                 let byte = self.read_byte_at(addr);
                 self.lda(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1624,7 +1706,7 @@ impl Emulator {
             }
             Instruction::CMP_ABS_Y => {
                 // compare Accumulator with value at absolute address + Y
-                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let addr = self.read_word().wrapping_add(self.y as u16);
                 let byte = self.read_byte_at(addr);
                 self.cmp(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1642,7 +1724,7 @@ impl Emulator {
             Instruction::SBC_ABS_Y => {
                 // perform a subtraction with carry on Accumulator 
                 // and value at absolute address + Y
-                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let addr = self.read_word().wrapping_add(self.y as u16);
                 let byte = self.read_byte_at(addr);
                 self.sbc(byte);
                 self.pc = self.pc.wrapping_add(1); 
@@ -1715,7 +1797,7 @@ impl Emulator {
             }
             Instruction::BIT_ABS => {
                 // perform a bit test on the value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.bit(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1724,22 +1806,22 @@ impl Emulator {
             }
             Instruction::JMP_ABS => {
                 // jump to absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.pc = addr;
                 trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::JMP_IND => {
                 // jump to current address + offset
-                let addr = self.read_addr();
-                let dest = self.read_addr_at(addr);
+                let addr = self.read_word();
+                let dest = self.read_word_at(addr);
                 self.pc = dest;
                 trace!(self, "${:04X}", dest);
                 Ok(())
             }
             Instruction::STY_ABS => {
                 // store Y at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.sty(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1747,7 +1829,7 @@ impl Emulator {
             }
             Instruction::LDY_ABS => {
                 // load value at absolute address into Y
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.ldy(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1756,7 +1838,7 @@ impl Emulator {
             }
             Instruction::LDY_ABS_X => {
                 // load value at absolute address, X indexed into Y
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 let byte = self.read_byte_at(addr);
                 self.ldy(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1765,7 +1847,7 @@ impl Emulator {
             }
             Instruction::CPY_ABS => {
                 // compare Y to value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.cpy(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1774,7 +1856,7 @@ impl Emulator {
             }
             Instruction::CPX_ABS => {
                 // compare X to value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.cpx(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1783,7 +1865,7 @@ impl Emulator {
             }
             Instruction::ORA_ABS => {
                 // perform OR on Accumulator and value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.ora(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1792,7 +1874,7 @@ impl Emulator {
             }
             Instruction::ORA_ABS_X => {
                 // perform OR on Accumulator and value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 let byte = self.read_byte_at(addr);
                 self.ora(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1801,7 +1883,7 @@ impl Emulator {
             }
             Instruction::AND_ABS => {
                 // perform AND on Accumulator and value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.and(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1810,7 +1892,7 @@ impl Emulator {
             }
             Instruction::AND_ABS_X => {
                 // perform AND on Accumulator and value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 let byte = self.read_byte_at(addr);
                 self.and(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1819,7 +1901,7 @@ impl Emulator {
             }
             Instruction::EOR_ABS => {
                 // perform EOR on Accumulator and value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.eor(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1828,7 +1910,7 @@ impl Emulator {
             }
             Instruction::EOR_ABS_X => {
                 // perform EOR on Accumulator and value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 let byte = self.read_byte_at(addr);
                 self.eor(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1838,7 +1920,7 @@ impl Emulator {
             Instruction::ADC_ABS => {
                 // perform add with carry on Accumulator 
                 // and value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.adc(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1848,7 +1930,7 @@ impl Emulator {
             Instruction::ADC_ABS_X => {
                 // perform add with carry on Accumulator 
                 // and value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 let byte = self.read_byte_at(addr);
                 self.adc(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1857,7 +1939,7 @@ impl Emulator {
             }
             Instruction::STA_ABS => {
                 // store Accumulator at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.sta(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1865,7 +1947,7 @@ impl Emulator {
             }
             Instruction::STA_ABS_X => {
                 // store Accumulator at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 self.sta(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1873,7 +1955,7 @@ impl Emulator {
             }
             Instruction::LDA_ABS => {
                 // load value from absolute address into Accumulator
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.lda(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1882,7 +1964,7 @@ impl Emulator {
             }
             Instruction::LDA_ABS_X => {
                 // load value from absolute address, X indexed into Accumulator
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 let byte = self.read_byte_at(addr);
                 self.lda(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1891,7 +1973,7 @@ impl Emulator {
             }
             Instruction::CMP_ABS => {
                 // compare Accumulator to value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.cmp(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1900,7 +1982,7 @@ impl Emulator {
             }
             Instruction::CMP_ABS_X => {
                 // compare Accumulator to value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 let byte = self.read_byte_at(addr);
                 self.cmp(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1909,7 +1991,7 @@ impl Emulator {
             }
             Instruction::SBC_ABS => {
                 // perform subtraction with carry on A and value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.sbc(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1919,7 +2001,7 @@ impl Emulator {
             Instruction::SBC_ABS_X => {
                 // perform subtraction with carry on A 
                 // and value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 let byte = self.read_byte_at(addr);
                 self.sbc(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -1929,7 +2011,7 @@ impl Emulator {
             Instruction::ASL_ABS => {
                 // perform an Arithmetic Shift Left 
                 // on value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.asl_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1938,7 +2020,7 @@ impl Emulator {
             Instruction::ASL_ABS_X => {
                 // perform an Arithmetic Shift Left 
                 // on value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 self.asl_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1947,7 +2029,7 @@ impl Emulator {
             Instruction::ROL_ABS => {
                 // perform a Rotate Left
                 // on value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.rol_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1956,7 +2038,7 @@ impl Emulator {
             Instruction::ROL_ABS_X => {
                 // perform a Rotate Left
                 // on value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 self.rol_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1965,7 +2047,7 @@ impl Emulator {
             Instruction::LSR_ABS => {
                 // perform a Logical Shift Right 
                 // on value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.lsr_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1974,7 +2056,7 @@ impl Emulator {
             Instruction::LSR_ABS_X => {
                 // perform a Logical Shift Right 
                 // on value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 self.lsr_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1983,7 +2065,7 @@ impl Emulator {
             Instruction::ROR_ABS => {
                 // perform a Rotate Right
                 // on value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.ror_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -1992,7 +2074,7 @@ impl Emulator {
             Instruction::ROR_ABS_X => {
                 // perform a Rotate Right
                 // on value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 self.ror_addr(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -2000,7 +2082,7 @@ impl Emulator {
             }
             Instruction::STX_ABS => {
                 // store X at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.stx(addr);
                 self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
@@ -2008,7 +2090,7 @@ impl Emulator {
             }
             Instruction::LDX_ABS => {
                 // load value at absolute address into X
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 let byte = self.read_byte_at(addr);
                 self.ldx(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -2017,7 +2099,7 @@ impl Emulator {
             }
             Instruction::LDX_ABS_Y => {
                 // store X at absolute address, Y indexed
-                let addr = self.read_addr().wrapping_add(self.y as u16);
+                let addr = self.read_word().wrapping_add(self.y as u16);
                 let byte = self.read_byte_at(addr);
                 self.ldx(byte);
                 self.pc = self.pc.wrapping_add(1);
@@ -2026,29 +2108,33 @@ impl Emulator {
             }
             Instruction::DEC_ABS => {
                 // decrement value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.dec(addr);
+                self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::DEC_ABS_X => {
                 // decrement value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 self.dec(addr);
+                self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::INC_ABS => {
                 // increment value at absolute address
-                let addr = self.read_addr();
+                let addr = self.read_word();
                 self.inc(addr);
+                self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
                 Ok(())
             }
             Instruction::INC_ABS_X => {
                 // increment value at absolute address, X indexed
-                let addr = self.read_addr().wrapping_add(self.x as u16);
+                let addr = self.read_word().wrapping_add(self.x as u16);
                 self.inc(addr);
+                self.pc = self.pc.wrapping_add(1);
                 trace!(self, "${:04X}", addr);
                 Ok(())
             }
@@ -2057,7 +2143,41 @@ impl Emulator {
     
     /// Run the currently loaded ROM until a BRK or error occurs
     fn run(&mut self) {
+        if self.graphical {
+            // get the window width from the ROM
+            let width = self.read_word_at(W_W_LOC as u16);
+            // get the window height from the ROM
+            let height = self.read_word_at(W_H_LOC as u16);
+            // get the position of the title in the ROM from the ROM
+            let title_ptr = self.read_word_at(W_T_LOC as u16);
+            // vec to store raw title bytes
+            let mut title_vec: Vec<i8> = vec![];
+            // start at title_ptr
+            let mut i = title_ptr;
+            // read the raw bytes into the vec until null terminator
+            while self.bus.read(i) != 0x00 {
+                title_vec.push(self.bus.read(i) as i8);
+                i += 1;
+            }
+            title_vec.push(0); // push null for terminator for raylib
+
+            unsafe {
+                raylib::ffi::InitWindow(width as i32, height as i32, title_vec.as_ptr());
+                raylib::ffi::SetTargetFPS(30);
+            }
+            
+
+        }
+
+
         'end: loop {
+            if self.graphical {
+                unsafe {
+                    if raylib::ffi::WindowShouldClose() {
+                        break 'end;
+                    }
+                }
+            }
             if let Some(e) = self.exec_instruction().err() {
                 match e {
                     EErr::IllegalInstruction(opcode) => {
@@ -2068,6 +2188,12 @@ impl Emulator {
                         break 'end;
                     }
                 }
+            }
+        }
+
+        if self.graphical {
+            unsafe {
+                raylib::ffi::CloseWindow();
             }
         }
     }
@@ -2110,3 +2236,4 @@ fn main() {
 //          actually probably just make it a flag to the compiler and check upon encounter
 // TODO:    add an option to replicate the JMP_IND page boundary bug
 // TODO:    use bitflags crate
+// TODO:    make debug a flag 

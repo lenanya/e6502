@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 num-derive = "0.4"
 num-traits = "0.2"
+raylib = "5.5.1"

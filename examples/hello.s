@@ -5,6 +5,7 @@
   .org $8000
   ; write address of hello_str 
   ; to 0x00 and 0x01
+reset:
   LDA #<hello_str
   STA $00
   LDA #>hello_str
@@ -13,7 +14,7 @@
   ; the address we just stored
   LDA #$00
   JSR puts
-  BRK
+  jmp reset
 
   ; write a char to stdout
   ; A -> char
@@ -48,6 +49,6 @@ done:
 hello_str: .asciiz "Hello World!\n" 
   ; Reset Vector
   .org $fffc
-  .word $8000
+  .word reset
   ; pad to 32KiB
   .word $0000

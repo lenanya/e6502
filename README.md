@@ -1,7 +1,4 @@
 # 6502 emulator
-
-a 6502 emulator
-
 ## Memory Layout:
 
 `0x0000 - 0x00ff`: ZP
@@ -12,7 +9,7 @@ a 6502 emulator
 
 `0x4000 - 0x6000`: reserved1
 
-`0x6000 - 0x8000`: reserved2 
+`0x6000 - 0x8000`: GPU (using [raylib](https://www.raylib.com/))
 
 `0x8000 - 0xffff`: ROM (loaded via file, 32KiB)
 
@@ -24,3 +21,5 @@ use [vasm6502_oldstyle](http://sun.hasenbraten.de/vasm/) for assembling
 
 ### References
 - [Instruction Set](https://www.masswerk.at/6502/6502_instruction_set.html)
+- [raylib crate](https://docs.rs/raylib/latest/raylib/)
+- [vasm6502](http://sun.hasenbraten.de/vasm/)
