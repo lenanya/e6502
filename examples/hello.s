@@ -31,13 +31,12 @@ puts:
 putsloop:
   ; get character
   LDA ($00), Y
-  ; go to next char
-  INY
   ; is A 0?
   ; (end of string)
-  CMP #$00
   ; if yes, we're done
   BEQ done
+  ; go to next char
+  INY
   ; else we print the char
   JSR putc
   ; loop
