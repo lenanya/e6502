@@ -17,7 +17,7 @@ reset:
 main:
   ; move rectangle
   inc rect_x
-  ; edge reached
+  inc rect_y
 draw:
   lda #$bd ; BeginDrawing
   sta $6000
