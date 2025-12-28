@@ -1,4 +1,5 @@
-spacebar = 0x20 ; space
+; keycode for spacebar
+spacebar = 0x20
 
  .org $8000
 reset:
@@ -53,10 +54,10 @@ is_key_down:
 
 window_title: .asciiz "Input"
   .org $fff0 ; data for gpu
-  .byte $01 ; 1 byte
-  .word 255 ; 2 bytes
-  .word 255 ; 2 bytes
-  .word window_title ; 2 bytes
+  .byte $01 ; enable gpu
+  .word 255 ; window width
+  .word 255 ; window height
+  .word window_title ; address of title
   .org $fffc ; reset vector
   .word reset
   .word $0000 ; padding

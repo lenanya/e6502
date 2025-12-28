@@ -79,6 +79,12 @@ clear:
   rts
 
 rect:
+  ; give the arguments
+  ; to DrawRectangle
+  ; to the GPU
+  ; by writing them
+  ; to the argument vector
+  ; at $6001 - $60ff
   lda rect_x
   sta $6001
   lda rect_y 
@@ -99,9 +105,9 @@ rect:
 
 window_title: .asciiz "Bounce"
   .org $fff0 ; data for gpu
-  .byte $01 ; 1 byte
-  .word 255 ; 2 bytes
-  .word 255 ; 2 bytes
+  .byte $01 ; enable GPU mode
+  .word 255 ; window width
+  .word 255 ; window height
   .word window_title ; 2 bytes
   .org $fffc ; reset vector
   .word reset
