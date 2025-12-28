@@ -8,10 +8,7 @@ reset:
   ; store it as call
   ; argument
   lda #spacebar
-  sta $6001
-  lda #$de ; call IsKeyDown
-  sta $6000
-  lda $6100 ; get result
+  jsr is_key_down
   jsr clear
   lda #$ed ; EndDrawing
   sta $6000
@@ -43,6 +40,15 @@ draw:
   ; the "GPU" to run this with the args
   ; after it
   sta $6000
+  rts
+
+  ; A -> Keycode to check
+  ; returns 1 in A if key is down
+is_key_down:
+  sta $6001
+  lda #$de ; call IsKeyDown
+  sta $6000
+  lda $6100 ; get result
   rts
 
 window_title: .asciiz "Input"
