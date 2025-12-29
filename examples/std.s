@@ -13,7 +13,7 @@ puts:
   ldy #$00
 putsloop:
   ; get character
-  ldy ($00), Y
+  lda ($00), Y
   ; is A 0?
   ; (end of string)
   ; if yes, we're done
