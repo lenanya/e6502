@@ -1,19 +1,15 @@
+grid_interval = 16
+g_args = $6001
+g_run  = $6000
+
   .org $8000
+  ; entry point
 reset:
   jsr begin_drawing
   jsr clear
   jsr draw_lines
   jsr end_drawing
   jmp reset
-
-  ; A -> Keycode to check
-  ; returns 1 in A if key is down
-is_key_down:
-  sta $6001
-  lda #$de ; call IsKeyDown
-  sta $6000
-  lda $6100 ; get result
-  rts
 
   ; A -> X/Y
   ; X -> 0/1
@@ -97,12 +93,6 @@ clear:
   ; after it
   sta $6000
   rts
-
-snake_length =  $200
-snake_data_ptr = $201 
-grid_interval = 16
-g_args = $6001
-g_run  = $6000
 
 window_title: .asciiz "Grid"
   .org $fff0 ; data for gpu
