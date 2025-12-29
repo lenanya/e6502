@@ -83,6 +83,8 @@ clear:
   sta $6000
   rts
 
+  .inclue "gstd.s"
+
 window_title: .asciiz "Grid"
   .org $fff0 ; data for gpu
   .byte $01 ; enable GPU mode
