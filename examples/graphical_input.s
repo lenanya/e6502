@@ -43,14 +43,7 @@ draw:
   sta $6000
   rts
 
-  ; A -> Keycode to check
-  ; returns 1 in A if key is down
-is_key_down:
-  sta $6001
-  lda #$de ; call IsKeyDown
-  sta $6000
-  lda $6100 ; get result
-  rts
+  .include "gstd.s" ; include gpu subroutines
 
 window_title: .asciiz "Input"
   .org $fff0 ; data for gpu
