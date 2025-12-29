@@ -20,7 +20,8 @@
 use [vasm6502_oldstyle](http://sun.hasenbraten.de/vasm/) for assembling
 
 ### References
+- [the idea to do it at all](https://www.youtube.com/playlist?list=PLowKtXNTBypFbtuVMUVXNR0z1mu7dp7eH)
 - [Instruction Set](https://www.masswerk.at/6502/6502_instruction_set.html)
 - [raylib crate](https://docs.rs/raylib/latest/raylib/)
 - [vasm6502](http://sun.hasenbraten.de/vasm/)
-- [Cube](https://www.youtube.com/watch?v=qjWkNZ0SXfo) (For cube.s math)
+- [itoa in std.s](https://youtu.be/v3-a-zqKfgA?si=bo9d8gnf18tv9Ytb)
