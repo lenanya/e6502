@@ -68,17 +68,6 @@ draw_lines_loop_h:
 draw_lines_done:
   rts
 
-  
-begin_drawing:
-  lda #$bd 
-  sta g_run
-  rts
-
-end_drawing:
-  lda #$ed
-  sta g_run
-  rts
-
 clear:
   ; store args starting at $6001
   lda #$10 ; R

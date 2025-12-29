@@ -7,3 +7,14 @@ is_key_down:
   lda $6100 ; get result
   rts
 
+  ; called at the beginning of a frame
+begin_drawing:
+  lda #$bd 
+  sta g_run
+  rts
+
+  ; called at end of frame
+end_drawing:
+  lda #$ed
+  sta g_run
+  rts
