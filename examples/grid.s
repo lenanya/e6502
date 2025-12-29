@@ -104,7 +104,7 @@ grid_interval = 16
 g_args = $6001
 g_run  = $6000
 
-window_title: .asciiz "Snake"
+window_title: .asciiz "Grid"
   .org $fff0 ; data for gpu
   .byte $01 ; enable GPU mode
   .word 255 ; window width
