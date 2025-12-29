@@ -134,7 +134,7 @@ _itoa_write_tens:
   sta (s_ptr), Y
   pla ; get A back
   iny
-_itoa_units
+_itoa_units:
   ; clear carry since we dont
   ; want the carry to mess
   ; up the remainder
