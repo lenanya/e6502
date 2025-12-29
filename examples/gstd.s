@@ -1,3 +1,6 @@
+g_args = $6001
+g_run  = $6000
+
   ; A -> Keycode to check
   ; returns 1 in A if key is down
 is_key_down:

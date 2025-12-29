@@ -1,6 +1,4 @@
 grid_interval = 16
-g_args = $6001
-g_run  = $6000
 
   .org $8000
   ; entry point
@@ -83,7 +81,7 @@ clear:
   sta $6000
   rts
 
-  .inclue "gstd.s"
+  .include "gstd.s"
 
 window_title: .asciiz "Grid"
   .org $fff0 ; data for gpu
