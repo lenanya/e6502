@@ -9,8 +9,5 @@ examples/graphical.bin: examples/graphical.s examples/gstd.s
 examples/graphical_input.bin: examples/graphical_input.s examples/gstd.s
 	vasm6502_oldstyle -dotdir -esc -Fbin -o examples/graphical_input.bin examples/graphical_input.s
 
-examples/grid.bin: examples/grid.s examples/gstd.s
-	vasm6502_oldstyle -dotdir -esc -Fbin -o examples/grid.bin examples/grid.s
-
 clean:
 	rm examples/*.bin
