@@ -1,4 +1,5 @@
   ; assemble this with `vasm6502_oldstyle -dotdir -esc -Fbin -o hello.bin hello.s`
+  ; or just run make if you have make
 
   ; make sure vasm knows
   ; this will be at 0x8000

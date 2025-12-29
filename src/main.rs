@@ -389,7 +389,11 @@ impl Bus {
                                 let col = raylib::ffi::Color {r, g, b, a: 0xFF};
                                 unsafe {
                                     // run command
-                                    raylib::ffi::DrawRectangle(x as i32, y as i32, w as i32, h as i32, col);
+                                    raylib::ffi::DrawRectangle(x as i32, 
+                                        y as i32, 
+                                        w as i32, 
+                                        h as i32, 
+                                        col);
                                 }
                             }
                             // IsKeyDown
@@ -400,6 +404,28 @@ impl Bus {
                                     let is_down = raylib::ffi::IsKeyDown(key as i32);
                                     // set whether key is down or not
                                     self.gpu[0x100] = if is_down {0x01} else {0x0};
+                                }
+                            }
+                            // DrawLine
+                            0xD1 => {
+                                // p1 
+                                let startx = self.read(0x6001);
+                                let starty = self.read(0x6002);
+                                // p2
+                                let endx   = self.read(0x6003);
+                                let endy   = self.read(0x6004);
+                                // get colour components
+                                let r = self.read(0x6005); 
+                                let g = self.read(0x6006);
+                                let b = self.read(0x6007);
+                                // make colour
+                                let col = raylib::ffi::Color {r, g, b, a: 0xFF};
+                                unsafe {
+                                    raylib::ffi::DrawLine(startx as i32,
+                                        starty as i32,
+                                        endx as i32,
+                                        endy as i32,
+                                        col);
                                 }
                             }
                             _ => {}

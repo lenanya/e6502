@@ -23,3 +23,4 @@ use [vasm6502_oldstyle](http://sun.hasenbraten.de/vasm/) for assembling
 - [Instruction Set](https://www.masswerk.at/6502/6502_instruction_set.html)
 - [raylib crate](https://docs.rs/raylib/latest/raylib/)
 - [vasm6502](http://sun.hasenbraten.de/vasm/)
+- [Cube](https://www.youtube.com/watch?v=qjWkNZ0SXfo) (For cube.s math)

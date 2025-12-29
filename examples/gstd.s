@@ -61,3 +61,19 @@ _draw_rectangle_arg_loop:
   lda #$d5 ; DrawRectangle
   sta g_run
   rts
+
+  ; raylib::DrawLine
+  ; g_ptr -> *{x1, y1, x2, y2, r, g, b}
+draw_line:
+  ldy #0
+  ldx #0
+_draw_line_arg_loop:
+  lda (g_ptr), Y
+  sta g_args, X
+  iny
+  inx
+  cpx #7 ; 7 args
+  bne _draw_line_arg_loop
+  lda #$d1
+  sta g_run
+  rts
