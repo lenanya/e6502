@@ -349,16 +349,19 @@ impl Bus {
                     // 0x6000 is like the "Enable Pin" of the "GPU"
                     if addr == 0x6000 {
                         match byte {
+                            // BeginDrawing
                             0xBD => {
                                 unsafe {
                                     raylib::ffi::BeginDrawing();
                                 }
                             }
+                            // EndDrawing
                             0xED => {
                                 unsafe {
                                     raylib::ffi::EndDrawing();
                                 }
                             }
+                            // ClearBackground
                             0xCB => {
                                 // get colour components
                                 let r = self.read(0x6001); 
@@ -371,6 +374,7 @@ impl Bus {
                                     raylib::ffi::ClearBackground(col);
                                 }
                             }
+                            // DrawRectangle
                             0xD5 => {
                                 // read rectangle position and size
                                 let x = self.read(0x6001); 
@@ -388,6 +392,7 @@ impl Bus {
                                     raylib::ffi::DrawRectangle(x as i32, y as i32, w as i32, h as i32, col);
                                 }
                             }
+                            // IsKeyDown
                             0xDE => {
                                 // get the key the program wants to know
                                 let key = self.read(0x6001);
