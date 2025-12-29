@@ -1,3 +1,11 @@
+; standard library like subroutines
+
+s_ptr = $fc ; ptr storage on zeropage
+; writing to this address causes
+; the byte to get written to stdout
+; by the emulator
+s_write_addr = $4000
+
   ; write a char to stdout
   ; A -> char
 putc:
@@ -8,21 +16,21 @@ putc:
   rts
   
   ; write a string to stdout
-  ; A -> zpg -> *str (null terminated)
+  ; s_ptr -> *str (null terminated)
 puts:
-  ldy #$00
-putsloop:
+  ldy #0
+_putsloop:
   ; get character
-  lda ($00), Y
+  lda (s_ptr), Y
   ; is A 0?
   ; (end of string)
   ; if yes, we're done
-  beq done
+  beq _puts_done
   ; go to next char
   iny
   ; else we print the char
   jsr putc
   ; loop
-  jmp putsloop
-done:
+  jmp _putsloop
+_puts_done:
   rts

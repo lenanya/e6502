@@ -2189,6 +2189,11 @@ impl Emulator {
 
 
         'end: loop {
+            if self.debug {
+                // step through execution
+                let mut void: String = Default::default();
+                let _ = std::io::stdin().read_line(&mut void);
+            }
             if self.graphical {
                 unsafe {
                     if raylib::ffi::WindowShouldClose() {

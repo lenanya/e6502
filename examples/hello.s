@@ -1,22 +1,20 @@
   ; assemble this with `vasm6502_oldstyle -dotdir -esc -Fbin -o hello.bin hello.s`
+
   ; make sure vasm knows
   ; this will be at 0x8000
-  ; in the emulato
+  ; in the emulator
   .org $8000
-  ; write address of hello_str 
-  ; to 0x00 and 0x01
 reset:
+  ; write address of hello_str 
+  ; to s_ptr
   lda #<hello_str
-  sta $00
+  sta s_ptr
   lda #>hello_str
-  sta $01
-  ; load zp address of 
-  ; the address we just stored
-  lda #$00
-  sta puts
+  sta s_ptr + 1
+  jsr puts
   brk
 
-  .include "std.s" ; include common subroutines
+  .include "std.s" ; include standard library
 
   ; the string we're printing
 hello_str: .asciiz "Hello World!\n" 

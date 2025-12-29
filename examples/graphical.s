@@ -2,8 +2,11 @@ rect_x = $200
 rect_y = $201
 rect_w = $202
 rect_h = $203
-rect_sx = $204
-rect_sy = $205
+rect_r = $204
+rect_g = $205
+rect_b = $206
+rect_sx = $207
+rect_sy = $208
  
   .org $8000
 reset:
@@ -15,6 +18,12 @@ reset:
   lda #15
   sta rect_w 
   sta rect_h 
+  ; set colour
+  lda #$ff
+  sta rect_r
+  sta rect_b
+  lda #$91
+  sta rect_g
   ; set speeds
   lda #1
   sta rect_sx
@@ -54,55 +63,27 @@ flip_y:
   EOR #$fe
   sta rect_sy
 draw:
-  lda #$bd ; BeginDrawing
-  sta $6000
-  jsr clear
-  jsr rect
-  lda #$ed ; EndDrawing
-  sta $6000
+  jsr begin_drawing
+  ; write address of background
+  ; colour to g_ptr
+  lda #<background_colour
+  sta g_ptr
+  lda #>background_colour
+  sta g_ptr + 1
+  jsr clear_background
+  ; write address of rect "object"
+  ; to g_ptr
+  lda #<rect_x
+  sta g_ptr
+  lda #>rect_x
+  sta g_ptr + 1
+  jsr draw_rectangle
+  jsr end_drawing
   jmp main
 
+  .include "gstd.s"
 
-clear:
-  ; store args starting at $6001
-  lda #$10 ; R
-  sta $6001
-  lda #$10 ; G
-  sta $6002
-  lda #$10 ; B
-  sta $6003
-  lda #$cb ; command -> ClearBackground
-  ; command goes to $6000 to tell
-  ; the "GPU" to run this with the args
-  ; after it
-  sta $6000
-  rts
-
-rect:
-  ; give the arguments
-  ; to DrawRectangle
-  ; to the GPU
-  ; by writing them
-  ; to the argument vector
-  ; at $6001 - $60ff
-  lda rect_x
-  sta $6001
-  lda rect_y 
-  sta $6002
-  lda rect_w
-  sta $6003
-  lda rect_h
-  sta $6004
-  lda #$ff ; R
-  sta $6005
-  lda #$91 ; G
-  sta $6006
-  lda #$ff ; B
-  sta $6007
-  lda #$d5 ; DrawRectangle
-  sta $6000
-  rts
-
+background_colour: .byte $10, $10, $10
 window_title: .asciiz "Bounce"
   .org $fff0 ; data for gpu
   .byte $01 ; enable GPU mode

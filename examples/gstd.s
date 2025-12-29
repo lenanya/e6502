@@ -1,5 +1,10 @@
-g_args = $6001
-g_run  = $6000
+; raylib bindings
+; and "GPU"
+; constants/addresses
+
+g_args = $6001 ; start of gpu arg vector
+g_run  = $6000 ; run command if written to
+g_ptr  = $fe   ; ptr storage on zeropage
 
   ; A -> Keycode to check
   ; returns 1 in A if key is down
@@ -19,5 +24,39 @@ begin_drawing:
   ; called at end of frame
 end_drawing:
   lda #$ed
+  sta g_run
+  rts
+  
+  ; raylib::ClearBackground
+  ; g_ptr -> *{r, g b} colour object
+clear_background:
+  ldy #0
+  ldx #0
+_clear_background_arg_loop:
+  ; load args into gpu arg vector
+  lda (g_ptr), Y
+  sta g_args, X
+  iny
+  inx
+  cpx #3 ; 3 args
+  bne _clear_background_arg_loop
+  lda #$cb ; command -> ClearBackground
+  sta g_run
+  rts
+
+  ; raylib::DrawRectangle
+  ; g_ptr -> *{x, y, w, h, r, g, b} rect "object"
+draw_rectangle:
+  ldy #0
+  ldx #0
+_draw_rectangle_arg_loop:
+  ; load args into gpu arg vector
+  lda (g_ptr), Y
+  sta g_args, X
+  iny
+  inx
+  cpx #7 ; 7 args
+  bne _draw_rectangle_arg_loop
+  lda #$d5 ; DrawRectangle
   sta g_run
   rts
