@@ -2,17 +2,18 @@
 ; and "GPU"
 ; constants/addresses
 
-g_args = $6001 ; start of gpu arg vector
-g_run  = $6000 ; run command if written to
-g_ptr  = $fe   ; ptr storage on zeropage
+g_args     = $6001 ; start of gpu arg vector
+g_run      = $6000 ; run command if written to
+g_ptr      = $fe   ; ptr storage on zeropage
+g_key_addr = $6100 ; address to read if key is down
 
   ; A -> Keycode to check
   ; returns 1 in A if key is down
 is_key_down:
-  sta $6001
+  sta g_args
   lda #$de ; call IsKeyDown
-  sta $6000
-  lda $6100 ; get result
+  sta g_run
+  lda g_key_addr ; get result
   rts
 
   ; called at the beginning of a frame
