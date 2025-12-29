@@ -2217,8 +2217,26 @@ impl Emulator {
         'end: loop {
             if self.debug {
                 // step through execution
-                let mut void: String = Default::default();
-                let _ = std::io::stdin().read_line(&mut void);
+                let mut to_read: String = Default::default();
+                loop {
+                    // get input and pause execution
+                    let _ = std::io::stdin().read_line(&mut to_read);
+                    // just enter -> step
+                    if to_read.trim() == "" {
+                        break;
+                    }
+                    /*
+                    you can write an address in the format 0000-ffff
+                    do not include 0x or $
+                    or it will crash
+                    TODO: check input when debugging
+                    */
+                    let addr = u16::from_str_radix(to_read.trim(), 16).unwrap();
+                    // print the value at the address
+                    println!("0x{:04X}: 0x{:02X}", addr, self.bus.read(addr as u16));
+                    // clear to not mess up anything yk
+                    to_read.clear();
+                }
             }
             if self.graphical {
                 unsafe {
@@ -2227,12 +2245,15 @@ impl Emulator {
                     }
                 }
             }
+            // run an instruction and check for errors
             if let Some(e) = self.exec_instruction().err() {
                 match e {
+                    // not a real instruction
                     EErr::IllegalInstruction(opcode) => {
                         eprintln!("Illegal Instruction: 0x{:02X}", opcode);
                         break 'end;
                     }
+                    // not an error, but instruction was BRK, exit
                     EErr::Break => {
                         break 'end;
                     }
@@ -2242,6 +2263,7 @@ impl Emulator {
 
         if self.graphical {
             unsafe {
+                // close window after we're done to clean up nicely
                 raylib::ffi::CloseWindow();
             }
         }
