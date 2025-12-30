@@ -6,8 +6,7 @@ reset:
   lda #69 ; number to convert
   jsr itoa
   jsr puts
-  lda #'\n'
-  jsr putc ; add a newline 
+  jsr nl
   ; clear buffer!
   jsr sb_clear
   ; buffers clear, let's do
@@ -26,8 +25,20 @@ reset:
   jsr itoa16
   jsr sb_to_sptr
   jsr puts
-  lda #'\n'
-  jsr putc
+  jsr nl
+  ; clear buffer
+  jsr sb_clear
+  ; now 32 cause im insane
+  lda #<number32
+  sta $00
+  lda #>number32
+  sta $01
+  jsr sb_to_sptr
+  lda #$00
+  jsr itoa32
+  jsr sb_to_sptr
+  jsr puts
+  jsr nl
   brk
 
 ; sub to not duplicate code as much
@@ -41,7 +52,7 @@ sb_to_sptr:
 ; clear sb
 sb_clear:
   lda #0
-  ldx #6
+  ldx #11
 sb_clear_loop:
   sta string_buffer, X
   dex 
@@ -49,9 +60,16 @@ sb_clear_loop:
   bne sb_clear_loop
   rts
 
+nl:
+  lda #'\n'
+  jsr putc
+  rts
+
   .include "std.s" ; include standard library
 
 number16: .word 42069 ; nice
+; 2,147,483,648
+number32: .word $0000, $8000 ; 32 signed bit limit
   ; Reset Vector
   .org $fffc
   .word reset

@@ -3,3 +3,5 @@
 !/examples/*.s
 examples/sin_table.s
 examples/cube.s
+.vscode
+.VSCodeCounter
