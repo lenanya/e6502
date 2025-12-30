@@ -90,6 +90,8 @@ window_title: .asciiz "Bounce"
   .word 255 ; window width
   .word 255 ; window height
   .word window_title ; 2 bytes
+  .byte 3   ; window scale
+  .byte 30  ; framerate
   .org $fffc ; reset vector
   .word reset
   .word $0000 ; padding

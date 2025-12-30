@@ -31,6 +31,10 @@ static W_W_LOC: usize = 0xfff1;
 static W_H_LOC: usize = 0xfff3;
 /// Window title location low byte
 static W_T_LOC: usize = 0xfff5;
+/// Window scale location
+static W_S_LOC: usize = 0xfff7;
+/// Window framerate location
+static W_FPS_LOC: usize = 0xfff8;
 
 
 /// Mask for Break and Reserved bit, as they get ignored when 
@@ -59,6 +63,8 @@ struct Emulator {
     debug: bool,
     /// Whether the GPU is enabled
     graphical: bool,
+    /// scale of window
+    gpu_scale: u8
 
 }
 
@@ -69,7 +75,8 @@ struct Bus {
     reserved1: [u8; K8],
     gpu: [u8; K8],
     rom: [u8; K32],
-    gpu_enable: bool
+    gpu_enable: bool,
+    gpu_scale: u8
 }
 
 #[allow(non_camel_case_types)]
@@ -288,7 +295,8 @@ impl Bus {
             reserved1: [0; K8],
             gpu: [0; K8],
             rom: rom.clone(),
-            gpu_enable: false
+            gpu_enable: false,
+            gpu_scale: 1
         }
     }
 
@@ -389,10 +397,10 @@ impl Bus {
                                 let col = raylib::ffi::Color {r, g, b, a: 0xFF};
                                 unsafe {
                                     // run command
-                                    raylib::ffi::DrawRectangle(x as i32, 
-                                        y as i32, 
-                                        w as i32, 
-                                        h as i32, 
+                                    raylib::ffi::DrawRectangle(x as i32 * 3, 
+                                        y as i32 * self.gpu_scale as i32, 
+                                        w as i32 * self.gpu_scale as i32, 
+                                        h as i32 * self.gpu_scale as i32, 
                                         col);
                                 }
                             }
@@ -421,10 +429,10 @@ impl Bus {
                                 // make colour
                                 let col = raylib::ffi::Color {r, g, b, a: 0xFF};
                                 unsafe {
-                                    raylib::ffi::DrawLine(startx as i32,
-                                        starty as i32,
-                                        endx as i32,
-                                        endy as i32,
+                                    raylib::ffi::DrawLine(startx as i32 * self.gpu_scale as i32,
+                                        starty as i32 * self.gpu_scale as i32,
+                                        endx as i32 * self.gpu_scale as i32,
+                                        endy as i32 * self.gpu_scale as i32,
                                         col);
                                 }
                             }
@@ -486,7 +494,8 @@ impl Emulator {
             bus: bus.clone(),
             sr: SRMask::Reserved as u8, // bit 5 is always set when pushing so set it
             debug: debug,
-            graphical: use_graphical // whether to use raylib
+            graphical: use_graphical, // whether to use raylib
+            gpu_scale: 1 // scale if gpu is used
         }
     }
 
@@ -2194,6 +2203,11 @@ impl Emulator {
             let height = self.read_word_at(W_H_LOC as u16);
             // get the position of the title in the ROM from the ROM
             let title_ptr = self.read_word_at(W_T_LOC as u16);
+            // get window scale
+            let gpu_scale = self.read_byte_at(W_S_LOC as u16);
+            self.bus.gpu_scale = gpu_scale;
+            // get FPS
+            let fps = self.read_byte_at(W_FPS_LOC as u16);
             // vec to store raw title bytes
             let mut title_vec: Vec<i8> = vec![];
             // start at title_ptr
@@ -2206,8 +2220,12 @@ impl Emulator {
             title_vec.push(0); // push null for terminator for raylib
 
             unsafe {
-                raylib::ffi::InitWindow(width as i32, height as i32, title_vec.as_ptr());
-                raylib::ffi::SetTargetFPS(30);
+                // times the window scale!
+                raylib::ffi::InitWindow(width as i32 * gpu_scale as i32, 
+                    height as i32 * gpu_scale as i32, 
+                    title_vec.as_ptr());
+                // set fps
+                raylib::ffi::SetTargetFPS(fps as i32);
             }
             
 

@@ -5,3 +5,7 @@ examples/sin_table.s
 examples/cube.s
 .vscode
 .VSCodeCounter
+ba*
+*.py
+examples/flappy.s
+examples/bad_apple.s

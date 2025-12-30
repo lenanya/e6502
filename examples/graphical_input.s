@@ -1,5 +1,5 @@
 ; keycode for spacebar
-spacebar = 0x20
+spacebar = $20
 
  .org $8000
 reset:
@@ -37,6 +37,8 @@ window_title: .asciiz "Input"
   .word 255 ; window width
   .word 255 ; window height
   .word window_title ; address of title
+  .byte 3   ; window scale
+  .byte 30  ; framerate
   .org $fffc ; reset vector
   .word reset
   .word $0000 ; padding
