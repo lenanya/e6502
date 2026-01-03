@@ -19,7 +19,13 @@
 
 use [vasm6502_oldstyle](http://sun.hasenbraten.de/vasm/) for assembling
 
-### References
+## NOW WITH (THE WORST EVER) BAD APPLE
+you can either use the already done binary examples/ba_frames, or you can generate it yourself
+by obtaining a 8x8@12 version of the bad apple video and running it through the 2 python scripts
+
+once you have said binary, just assemble bad_apple.s and run it!
+
+## References
 - [the idea to do it at all](https://www.youtube.com/playlist?list=PLowKtXNTBypFbtuVMUVXNR0z1mu7dp7eH)
 - [Instruction Set](https://www.masswerk.at/6502/6502_instruction_set.html)
 - [raylib crate](https://docs.rs/raylib/latest/raylib/)

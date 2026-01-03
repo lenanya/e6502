@@ -397,7 +397,7 @@ impl Bus {
                                 let col = raylib::ffi::Color {r, g, b, a: 0xFF};
                                 unsafe {
                                     // run command
-                                    raylib::ffi::DrawRectangle(x as i32 * 3, 
+                                    raylib::ffi::DrawRectangle(x as i32 * self.gpu_scale as i32, 
                                         y as i32 * self.gpu_scale as i32, 
                                         w as i32 * self.gpu_scale as i32, 
                                         h as i32 * self.gpu_scale as i32, 
