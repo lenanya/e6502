@@ -35,4 +35,4 @@ examples/build/bad_apple.o: examples/build examples/bad_apple.s
 
 clean:
 	rm examples/*.bin
-	rm examples/build/*
+	rm -r examples/build
