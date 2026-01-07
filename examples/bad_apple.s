@@ -10,7 +10,7 @@ p_r = $204
 p_g = $205
 p_b = $206
 
-  .org $8000
+  .segment "CODE"
   ; i forgot to comment,
   ; too locked in
 reset:
@@ -24,14 +24,14 @@ reset:
 main_loop:
   jsr begin_drawing
   lda #<background_colour
-  sta g_ptr 
+  sta z:g_ptr 
   lda #>background_colour
-  sta g_ptr + 1
+  sta z:g_ptr + 1
   jsr clear_background
   lda #<p_x
-  sta g_ptr
+  sta z:g_ptr
   lda #>p_x
-  sta g_ptr + 1
+  sta z:g_ptr + 1
 frame:
   lda #0
   sta f_x
@@ -95,18 +95,17 @@ draw_white:
   rts
 
   .include "gstd.s"
-  .org $9000
 frames: .incbin "ba_frames"
 background_colour: .byte 0, 0, 0
 window_title: .asciiz "Bad Apple"
-  .org $fff0 ; data for gpu
+  .segment "GPU_DATA"
   .byte $01 ; enable GPU mode
   .word 8 ; window width
   .word 8 ; window height
   .word window_title ; 2 bytes
   .byte 110   ; window scale
   .byte 12  ; framerate
-  .org $fffc ; reset vector
+  .segment "RV" ; reset vector
   .word reset
-  .word $0000 ; padding
+
   ; TODO: comment everything

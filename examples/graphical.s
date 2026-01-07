@@ -8,7 +8,7 @@ rect_b = $206
 rect_sx = $207
 rect_sy = $208
  
-  .org $8000
+  .segment "CODE"
 reset:
   ; init the rectangle to start at 0,0
   lda #0
@@ -67,16 +67,16 @@ draw:
   ; write address of background
   ; colour to g_ptr
   lda #<background_colour
-  sta g_ptr
+  sta z:g_ptr
   lda #>background_colour
-  sta g_ptr + 1
+  sta z:g_ptr + 1
   jsr clear_background
   ; write address of rect "object"
   ; to g_ptr
   lda #<rect_x
-  sta g_ptr
+  sta z:g_ptr
   lda #>rect_x
-  sta g_ptr + 1
+  sta z:g_ptr + 1
   jsr draw_rectangle
   jsr end_drawing
   jmp main
@@ -85,13 +85,12 @@ draw:
 
 background_colour: .byte $10, $10, $10
 window_title: .asciiz "Bounce"
-  .org $fff0 ; data for gpu
+  .segment "GPU_DATA"
   .byte $01 ; enable GPU mode
   .word 255 ; window width
   .word 255 ; window height
   .word window_title ; 2 bytes
   .byte 3   ; window scale
   .byte 30  ; framerate
-  .org $fffc ; reset vector
+  .segment "RV" ; reset vector
   .word reset
-  .word $0000 ; padding

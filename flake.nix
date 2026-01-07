@@ -12,12 +12,24 @@
         in 
         {
             devShells.${system}.default = pkgs.mkShell {
-                buildInputs = with pkgs; [
-                    python313
-                    rust
-                    make
+                packages = with pkgs; [
+                    cargo
                     cc65
+                    gnumake
+                    cmake
+                    xorg.libX11
+                    xorg.libXcursor
+                    xorg.libXrandr
+                    xorg.libXinerama
+                    xorg.libXi
+                    xorg.libXext
+                    libGL
+                    libclang
                 ];
+                shellHook = ''
+                    export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
+                    export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.libGL ]}:$LD_LIBRARY_PATH"
+                '';
             };
         };
 

@@ -1,6 +1,7 @@
+  .feature string_escapes
 string_buffer = $200
 
-  .org $8000
+  .segment "CODE"
 reset:
   jsr sb_to_sptr
   lda #69 ; number to convert
@@ -44,9 +45,9 @@ reset:
 ; sub to not duplicate code as much
 sb_to_sptr: 
   lda #<string_buffer
-  sta s_ptr
+  sta z:s_ptr
   lda #>string_buffer
-  sta s_ptr + 1
+  sta z:s_ptr + 1
   rts 
 
 ; clear sb
@@ -61,7 +62,7 @@ sb_clear_loop:
   rts
 
 nl:
-  lda #'\n'
+  lda #10 ; newline
   jsr putc
   rts
 
@@ -70,8 +71,7 @@ nl:
 number16: .word 42069 ; nice
 ; 2,147,483,648
 number32: .word $0000, $8000 ; 32 signed bit limit
+  .segment "GPU_DATA"
   ; Reset Vector
-  .org $fffc
+  .segment "RV"
   .word reset
-  ; pad to 32KiB
-  .word $0000

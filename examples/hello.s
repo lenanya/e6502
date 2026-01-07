@@ -1,17 +1,12 @@
-  ; assemble this with `vasm6502_oldstyle -dotdir -esc -Fbin -o hello.bin hello.s`
-  ; or just run make if you have make
-
-  ; make sure vasm knows
-  ; this will be at 0x8000
-  ; in the emulator
-  .org $8000
+  .feature string_escapes
+  .segment "CODE"
 reset:
   ; write address of hello_str 
   ; to s_ptr
   lda #<hello_str
-  sta s_ptr
+  sta z:s_ptr
   lda #>hello_str
-  sta s_ptr + 1
+  sta z:s_ptr + 1
   jsr puts
   brk
 
@@ -19,8 +14,7 @@ reset:
 
   ; the string we're printing
 hello_str: .asciiz "Hello World!\n" 
+  .segment "GPU_DATA"
   ; Reset Vector
-  .org $fffc
+  .segment "RV"
   .word reset
-  ; pad to 32KiB
-  .word $0000

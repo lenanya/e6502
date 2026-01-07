@@ -9,3 +9,6 @@ ba_frames_jpg
 bad_apple8_12fps.mp4
 examples/flappy.s
 !examples/ba_frames
+!examples/ca.conf
+.envrc
+.direnv

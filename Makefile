@@ -1,26 +1,38 @@
-all: examples/hello.bin examples/graphical.bin examples/graphical_input.bin examples/sin_table.s examples/outputting_numbers.bin examples/bad_apple.bin
+all: examples/hello.bin examples/outputting_numbers.bin examples/graphical.bin examples/graphical_input.bin examples/bad_apple.bin
 
-examples/hello.bin: examples/hello.s examples/std.s
-	vasm6502_oldstyle -dotdir -esc -Fbin -o examples/hello.bin examples/hello.s
+examples/build:
+	mkdir examples/build
 
-examples/graphical.bin: examples/graphical.s examples/gstd.s
-	vasm6502_oldstyle -dotdir -esc -Fbin -o examples/graphical.bin examples/graphical.s
+examples/hello.bin: examples/build/hello.o
+	ld65 -C examples/ca.conf -o examples/hello.bin examples/build/hello.o
 
-examples/graphical_input.bin: examples/graphical_input.s examples/gstd.s
-	vasm6502_oldstyle -dotdir -esc -Fbin -o examples/graphical_input.bin examples/graphical_input.s
+examples/build/hello.o: examples/build examples/hello.s
+	ca65 -o examples/build/hello.o examples/hello.s
 
-examples/outputting_numbers.bin: examples/outputting_numbers.s examples/std.s
-	vasm6502_oldstyle -dotdir -esc -Fbin -o examples/outputting_numbers.bin examples/outputting_numbers.s
+examples/outputting_numbers.bin: examples/build/outputting_numbers.o
+	ld65 -C examples/ca.conf -o examples/outputting_numbers.bin examples/build/outputting_numbers.o
 
-#examples/flappy.bin: examples/flappy.s examples/gstd.s examples/std.s
-#	vasm6502_oldstyle -dotdir -esc -Fbin -o examples/flappy.bin examples/flappy.s
+examples/build/outputting_numbers.o: examples/build examples/outputting_numbers.s
+	ca65 -o examples/build/outputting_numbers.o examples/outputting_numbers.s
 
-examples/bad_apple.bin: examples/bad_apple.s examples/gstd.s
-	vasm6502_oldstyle -dotdir -esc -Fbin -o examples/bad_apple.bin examples/bad_apple.s
+examples/graphical.bin: examples/build/graphical.o
+	ld65 -C examples/ca.conf -o examples/graphical.bin examples/build/graphical.o
 
-#examples/cube.bin: examples/cube.s examples/gstd.s examples/sin_table.s
-#	vasm6502_oldstyle -dotdir -esc -Fbin -o examples/cube.bin examples/cube.s
+examples/build/graphical.o: examples/build examples/graphical.s
+	ca65 -o examples/build/graphical.o examples/graphical.s
+
+examples/graphical_input.bin: examples/build/graphical_input.o
+	ld65 -C examples/ca.conf -o examples/graphical_input.bin examples/build/graphical_input.o
+
+examples/build/graphical_input.o: examples/build examples/graphical_input.s
+	ca65 -o examples/build/graphical_input.o examples/graphical_input.s
+
+examples/bad_apple.bin: examples/build/bad_apple.o
+	ld65 -C examples/ca.conf -o examples/bad_apple.bin examples/build/bad_apple.o
+
+examples/build/bad_apple.o: examples/build examples/bad_apple.s
+	ca65 -o examples/build/bad_apple.o examples/bad_apple.s
 
 clean:
 	rm examples/*.bin
-	rm examples/sin_table.s
+	rm examples/build/*
