@@ -14,11 +14,6 @@
 `0x8000 - 0xffff`: ROM (loaded via file, 32KiB)
 
 
-## Reset Vector: 
-`0xfffc - 0xfffd` (in a ROM: `0x7ffc - 0x7ffd`)
-
-use [vasm6502_oldstyle](http://sun.hasenbraten.de/vasm/) for assembling
-
 ## To run examples
 ```shell
 $ make
@@ -60,3 +55,4 @@ once you have said binary, just assemble bad_apple.s and run it!
 - [itoa in std.s](https://youtu.be/v3-a-zqKfgA?si=bo9d8gnf18tv9Ytb)
 - [msbasic i forked](https://github.com/mist64/msbasic)
 - [msbasic fork](https://github.com/lenanya/msbasic-e6502)
+- [cc64 suite](https://cc65.github.io/)
