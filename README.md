@@ -19,6 +19,33 @@
 
 use [vasm6502_oldstyle](http://sun.hasenbraten.de/vasm/) for assembling
 
+## To run examples
+```shell
+$ make
+```
+
+and then you can run them like this (using `hello.bin` as an example here)
+
+```shell
+$ cargo run hello.bin
+```
+
+
+## Now with msbasic as an example!
+you'll need to clone recursively, or clone the fork into here
+
+in there, just run 
+
+```shell
+$ ./make.sh
+```
+
+and then you will be able to run it with
+
+```shell
+$ cargo run msbasic/temp/e6502.bin
+```
+
 ## NOW WITH (THE WORST EVER) BAD APPLE
 you can either use the already done binary examples/ba_frames, or you can generate it yourself
 by obtaining a 8x8@12 version of the bad apple video and running it through the 2 python scripts
@@ -31,3 +58,5 @@ once you have said binary, just assemble bad_apple.s and run it!
 - [raylib crate](https://docs.rs/raylib/latest/raylib/)
 - [vasm6502](http://sun.hasenbraten.de/vasm/)
 - [itoa in std.s](https://youtu.be/v3-a-zqKfgA?si=bo9d8gnf18tv9Ytb)
+- [msbasic i forked](https://github.com/mist64/msbasic)
+- [msbasic fork](https://github.com/lenanya/msbasic-e6502)

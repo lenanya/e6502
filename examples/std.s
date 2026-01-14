@@ -723,3 +723,14 @@ _itoa32_units_loop:
   lda #0
   sta (s_ptr), Y
   rts
+
+; returns 1 in A if a key has been pressed (terminal)
+chkchr:
+  lda $4002
+  rts
+
+; return the last pressed key in A
+; this will also reset the status!!!
+chrin:
+  lda $4001
+  rts 

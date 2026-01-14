@@ -1,0 +1,3 @@
+[submodule "msbasic"]
+	path = msbasic
+	url = https://github.com/lenanya/msbasic-e6502

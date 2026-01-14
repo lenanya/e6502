@@ -1,4 +1,4 @@
-all: examples/hello.bin examples/outputting_numbers.bin examples/graphical.bin examples/graphical_input.bin examples/bad_apple.bin
+all: examples/hello.bin examples/outputting_numbers.bin examples/graphical.bin examples/graphical_input.bin examples/bad_apple.bin examples/reading_input.bin msbasic/tmp/e6502.bin
 
 examples/build:
 	mkdir examples/build
@@ -32,6 +32,12 @@ examples/bad_apple.bin: examples/build/bad_apple.o
 
 examples/build/bad_apple.o: examples/build examples/bad_apple.s
 	ca65 -o examples/build/bad_apple.o examples/bad_apple.s
+
+examples/reading_input.bin: examples/build/reading_input.o
+	ld65 -C examples/ca.conf -o examples/reading_input.bin examples/build/reading_input.o
+
+examples/build/reading_input.o: examples/build examples/reading_input.s
+	ca65 -o examples/build/reading_input.o examples/reading_input.s
 
 clean:
 	rm examples/*.bin

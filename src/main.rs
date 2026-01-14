@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 
 use std::{env::args, fs, process};
+use crossterm::{event::{self, Event, KeyCode, KeyModifiers}, terminal::{disable_raw_mode, enable_raw_mode}};
+use std::time::Duration;
 use raylib;
+use std::io::{self, Write};
 
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -72,7 +75,7 @@ struct Emulator {
 /// Address Bus which handles all reads and writes, including IO
 struct Bus {
     ram: [u8; K16],
-    reserved1: [u8; K8],
+    io: [u8; K8],
     gpu: [u8; K8],
     rom: [u8; K32],
     gpu_enable: bool,
@@ -292,7 +295,7 @@ impl Bus {
     pub fn init(rom: [u8; K32]) -> Bus {
         Bus {
             ram: [0; K16],
-            reserved1: [0; K8],
+            io: [0; K8],
             gpu: [0; K8],
             rom: rom.clone(),
             gpu_enable: false,
@@ -304,15 +307,24 @@ impl Bus {
     Read a byte from an address on the bus
     which will redirect to RAM, ROM or the reserved spaces IO
     */
-    pub fn read(&self, addr: u16) -> u8 {
+    pub fn read(&mut self, addr: u16) -> u8 {
         match addr {
             // RAM
             0x0000..=0x3FFF => {
                 self.ram[addr as usize]
             }
-            // reserved1
+            // io
             0x4000..=0x5FFF => {
-                0x00 // placeholder
+                // address for reading a key and status 
+                if addr == 0x4001 {
+                    // reset status
+                    self.write(0x4002, 0);
+                    return self.io[addr as usize - 0x4000]
+                } else if addr == 0x4002 {
+                    // return the status
+                    return self.io[addr as usize - 0x4000]
+                }
+                0
             }
             // gpu
             0x6000..=0x7FFF => {
@@ -344,10 +356,23 @@ impl Bus {
             0x0000..=0x3FFF => {
                 self.ram[addr as usize] = byte;
             }
-            // reserved1
+            // io
             0x4000..=0x5FFF => {
                 if addr == 0x4000 {
+                    if byte == 8 {
+                        return
+                    }
                     print!("{}", byte as char);
+                    // check if its a newline to add a CR
+                    // we need the CR since we're in raw mode
+                    if byte == 10 {
+                        print!("\r");
+                    }
+                    io::stdout().flush().unwrap();
+                }
+                // so the fuckin input loop can write to these lmao
+                if (addr == 0x4001) || (addr == 0x4002) {
+                    self.io[addr as usize - 0x4000] = byte;
                 }
             }
             // gpu
@@ -465,6 +490,7 @@ macro_rules! trace {
     ($self:ident, $($arg:tt)*) => {
         if $self.debug {
             println!($($arg)*);
+            print!("\r");
         };
     }
 }
@@ -960,7 +986,9 @@ impl Emulator {
     Execute the Instruction at PC, returns EErr on illegal opcode or BRK
     */
     fn exec_instruction(&mut self) -> Result<(), EErr> {
+
         if self.debug {
+            disable_raw_mode().unwrap();
             self.print_state();
         }
         // get the opcode, propagate error if illegal
@@ -968,6 +996,7 @@ impl Emulator {
         // print the current PC, and the instruction read
         if self.debug {
             print!("0x{:04X}: {:?} ", self.pc, inst);
+            enable_raw_mode().unwrap();
         }
         // increment PC to the Operand or next instruction
         self.pc = self.pc.wrapping_add(1);
@@ -2220,6 +2249,8 @@ impl Emulator {
             title_vec.push(0); // push null for terminator for raylib
 
             unsafe {
+                // make raylib shut up 
+                raylib::ffi::SetTraceLogLevel(7);
                 // times the window scale!
                 raylib::ffi::InitWindow(width as i32 * gpu_scale as i32, 
                     height as i32 * gpu_scale as i32, 
@@ -2234,6 +2265,7 @@ impl Emulator {
 
         'end: loop {
             if self.debug {
+                disable_raw_mode().unwrap();
                 // step through execution
                 let mut to_read: String = Default::default();
                 loop {
@@ -2255,6 +2287,7 @@ impl Emulator {
                     // clear to not mess up anything yk
                     to_read.clear();
                 }
+                enable_raw_mode().unwrap();
             }
             if self.graphical {
                 unsafe {
@@ -2263,6 +2296,36 @@ impl Emulator {
                     }
                 }
             }
+
+            // check if a key has been pressed and update memory if its the case
+            if event::poll(Duration::from_millis(0)).unwrap() {
+                if let Event::Key(key_event) = event::read().unwrap() {
+                    if key_event.modifiers.contains(KeyModifiers::CONTROL) &&
+                        key_event.code == KeyCode::Char('c') {
+                            break 'end
+                    }
+                    // set the status to true
+                    self.bus.write(0x4002, 0x01);
+                    match key_event.code {
+                        KeyCode::Char(c) => {
+                            // give the byte to the cpu at $4001
+                            self.bus.write(0x4001, c as u8);  
+                        }
+                        KeyCode::Enter => {
+                            self.bus.write(0x4001, 10);  
+                        }
+                        KeyCode::Backspace => {
+                            self.bus.write(0x4001, 8); 
+                        }
+                        KeyCode::Esc => {
+                            self.bus.write(0x4001, 27);
+                        }
+                        _ => {}
+                    }
+                    
+                }
+            }
+
             // run an instruction and check for errors
             if let Some(e) = self.exec_instruction().err() {
                 match e {
@@ -2315,10 +2378,15 @@ fn main() {
         eprintln!("[ERROR]: {}", e);
         process::exit(1);
     });
-    
+
     // init and run emulator
     let mut e = Emulator::init(code, false);
+
+    // enable raw mode to allow reading raw characters
+    enable_raw_mode().unwrap();
     e.run();
+    // clean up
+    disable_raw_mode().unwrap();
 }
 
 // TODO:    maybe add WDC extensions as an option? (are conditional enum fields a thing)
