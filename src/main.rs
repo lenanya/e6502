@@ -9,6 +9,7 @@ use std::io::{self, Write};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
+// TODO: enum?
 /// 8 Kibibytes
 static K8: usize = 0x2000;
 /// 16 Kibibytes
@@ -18,6 +19,7 @@ static K32: usize = 0x8000;
 /// 64 Kibibytes
 static K64: usize = 0x10000;
 
+// TODO: enum
 /// Start of the ROM in internal memory
 static ROM_START: usize = K32;
 /// Bottom of the stack
@@ -66,7 +68,7 @@ struct Emulator {
     debug: bool,
     /// Whether the GPU is enabled
     graphical: bool,
-    /// scale of window
+    /// Scale used on all values by raylib functions
     gpu_scale: u8
 
 }
@@ -74,11 +76,19 @@ struct Emulator {
 #[derive(Clone, Copy)]
 /// Address Bus which handles all reads and writes, including IO
 struct Bus {
+    /// RAM: Zeropage, Stack, general purpose RAM
     ram: [u8; K16],
+    /// Addresses used by the CPU for terminal IO
     io: [u8; K8],
+    /// Addresses used to pass data to the "GPU"
     gpu: [u8; K8],
+    /// The ROM, where the code and static data live
     rom: [u8; K32],
+    /// Flag to tell the bus whether the "GPU" was enabled in the ROM
     gpu_enable: bool,
+    /// All raylib calls are scaled, so you can use a larger 
+    /// window than 256x256 since thats tiny on modern systems
+    // TODO: initialise to 1 instead of 0 if the ROM doesnt supply it
     gpu_scale: u8
 }
 
@@ -86,6 +96,7 @@ struct Bus {
 #[repr(u8)]
 #[derive(Debug, FromPrimitive)]
 /// An enum of all possible (legal) Opcodes
+// TODO: descriptions here?
 enum Instruction {
     BRK         = 0x00,
     BPL         = 0x10,
@@ -253,6 +264,7 @@ enum Instruction {
 
 #[repr(u8)]
 /// Masks to work with single bits of the SR
+// TODO: bitflags crate?
 enum SRMask {
     // Functions as the 8th bit of operations 
     Carry       = 0b00000001, 
@@ -278,11 +290,12 @@ enum EErr {
     // invalid opcode
     IllegalInstruction(u8), 
     // halt
-    Break              
+    Break      
+    // TODO: interrupts here?        
 }
 
 impl From<u8> for EErr {
-    /// Needed for ?
+    /// Needed for the ? operator later
     fn from(b: u8) -> Self {
         EErr::IllegalInstruction(b)
     }
@@ -294,10 +307,15 @@ impl Bus {
     /// initialise the bus, cloning the ROM into the correct section
     pub fn init(rom: [u8; K32]) -> Bus {
         Bus {
+            // memory sections are initialised to 0
+            // not technically accurate but whatever
             ram: [0; K16],
             io: [0; K8],
             gpu: [0; K8],
+            // clone since its just 32k 
+            // and lifetimes are annoying
             rom: rom.clone(),
+            // disable gpu by default
             gpu_enable: false,
             gpu_scale: 1
         }
@@ -308,17 +326,24 @@ impl Bus {
     which will redirect to RAM, ROM or the reserved spaces IO
     */
     pub fn read(&mut self, addr: u16) -> u8 {
+        // TODO: refactor addresses to enum/constant
         match addr {
             // RAM
             0x0000..=0x3FFF => {
+                // give back the byte, no offset needed since it 
+                // starts at $0000
                 self.ram[addr as usize]
             }
             // io
             0x4000..=0x5FFF => {
                 // address for reading a key and status 
+                // TODO: refactor addresses to constants
                 if addr == 0x4001 {
                     // reset status
+                    // TODO: refactor address to constants
                     self.write(0x4002, 0);
+                    // offset since theyre seperate "modules",
+                    // not one continuous address space
                     return self.io[addr as usize - 0x4000]
                 } else if addr == 0x4002 {
                     // return the status
@@ -351,6 +376,7 @@ impl Bus {
     which will redirect it to RAM or the reserved spaces (IO)
     */
     pub fn write(&mut self, addr: u16, byte: u8) {
+        // TODO: refactor addresses to enum? constants?
         match addr {
             // RAM
             0x0000..=0x3FFF => {
@@ -359,6 +385,7 @@ impl Bus {
             // io
             0x4000..=0x5FFF => {
                 if addr == 0x4000 {
+                    // ignore backspaces
                     if byte == 8 {
                         return
                     }
@@ -380,16 +407,23 @@ impl Bus {
                 // only do this if gpu is enabled
                 if self.gpu_enable {
                     // 0x6000 is like the "Enable Pin" of the "GPU"
+                    // TODO: refactor address to constant
                     if addr == 0x6000 {
+                        // TODO: refactor to enum, no more magical values pls
                         match byte {
                             // BeginDrawing
                             0xBD => {
+                                // tell raylib to start a new frame?
+                                // TODO: look up what this does
                                 unsafe {
                                     raylib::ffi::BeginDrawing();
                                 }
                             }
                             // EndDrawing
                             0xED => {
+                                // tell raylib to handle 
+                                // drawing the frame and waiting 
+                                // for the next frame
                                 unsafe {
                                     raylib::ffi::EndDrawing();
                                 }
@@ -421,7 +455,7 @@ impl Bus {
                                 // make colour
                                 let col = raylib::ffi::Color {r, g, b, a: 0xFF};
                                 unsafe {
-                                    // run command
+                                    // run command, scaled 
                                     raylib::ffi::DrawRectangle(x as i32 * self.gpu_scale as i32, 
                                         y as i32 * self.gpu_scale as i32, 
                                         w as i32 * self.gpu_scale as i32, 
@@ -434,6 +468,7 @@ impl Bus {
                                 // get the key the program wants to know
                                 let key = self.read(0x6001);
                                 unsafe {
+                                    // is the key requested down?
                                     let is_down = raylib::ffi::IsKeyDown(key as i32);
                                     // set whether key is down or not
                                     self.gpu[0x100] = if is_down {0x01} else {0x0};
@@ -454,6 +489,7 @@ impl Bus {
                                 // make colour
                                 let col = raylib::ffi::Color {r, g, b, a: 0xFF};
                                 unsafe {
+                                    // also scaled 
                                     raylib::ffi::DrawLine(startx as i32 * self.gpu_scale as i32,
                                         starty as i32 * self.gpu_scale as i32,
                                         endx as i32 * self.gpu_scale as i32,
@@ -465,6 +501,9 @@ impl Bus {
                         }
                         // clear arguments after a call
                         for i in 0x6001..=0x60FF {
+                            // put 0 there so the cpu can 
+                            // check and see ah theres no new 
+                            // character to get
                             self.write(i, 0x00);
                         }
                     }   
@@ -472,12 +511,17 @@ impl Bus {
                 }
                 // 0x6001 - 0x60FF -> Arguments to GPU calls
                 if matches!(addr, 0x6001..=0x60FF) {
+                    // you obviously need to be able to write 
+                    // to these so you can actually pass 
+                    // arguments to the "GPU" (raylib)
                     self.gpu[addr as usize - 0x6000] = byte;
                 }
             }
             // ROM 
             0x8000..=0xFFFF => {
                 // you cant write to ROM, but also dont get an error
+                // on the original 6502 since the ROM is external
+                // so we just do nothing here
             }
         }
     }
@@ -490,6 +534,8 @@ macro_rules! trace {
     ($self:ident, $($arg:tt)*) => {
         if $self.debug {
             println!($($arg)*);
+            // we need this since raw mode fucks
+            // everything in the terminal
             print!("\r");
         };
     }
@@ -500,15 +546,19 @@ impl Emulator {
     /// Initialise the Emulator struct with the supplied ROM data, get the Reset Vector and 
     /// initialise registers
     fn init(code: [u8; K32], debug: bool) -> Emulator {
+        // get the bus started
         let mut bus = Bus::init(code);
 
         // get the Reset Vector address from the ROM
         // Reset Vector is at 0xfffc - 0xfffd
         let rv_low = bus.read(RV_LOC_LOW as u16) as u16;
         let rv_high = bus.read(RV_LOC_HIGH as u16) as u16;
+        // merge into one address
         let rv: u16 = rv_high << 8 | rv_low;
 
+        // is GPU_ENABLE byte set in ROM?
         let use_graphical = bus.read(GPU_LOC as u16) != 0;
+        // bus needs to know if graphical mode is on too
         bus.gpu_enable = use_graphical;
 
         Emulator {
@@ -519,7 +569,7 @@ impl Emulator {
             sp: 0xff, // stack starts at 0x1ff since it grows down
             bus: bus.clone(),
             sr: SRMask::Reserved as u8, // bit 5 is always set when pushing so set it
-            debug: debug,
+            debug: debug, // to make debug optional
             graphical: use_graphical, // whether to use raylib
             gpu_scale: 1 // scale if gpu is used
         }
@@ -528,10 +578,16 @@ impl Emulator {
     /// Print the current state of the CPU
     fn print_state(&mut self) {
         println!("-----------");
+        // state of the Accumulator
         println!("A:  0x{:02X}", self.a);
+        // state of X register
         println!("X:  0x{:02X}", self.x);
+        // state of Y register
         println!("Y:  0x{:02X}", self.y);
+        // state of stack pointer
         println!("SP: 0x{:02X}", self.sp);
+        // state of state register
+        // in binary since we care about the bits
         println!("SR: 0b{:08b}", self.sr);
         println!("-----------");
     }
@@ -988,7 +1044,9 @@ impl Emulator {
     fn exec_instruction(&mut self) -> Result<(), EErr> {
 
         if self.debug {
+            // turn off raw mode to not mess with printing
             disable_raw_mode().unwrap();
+            // print the state of the cpu
             self.print_state();
         }
         // get the opcode, propagate error if illegal
@@ -996,11 +1054,15 @@ impl Emulator {
         // print the current PC, and the instruction read
         if self.debug {
             print!("0x{:04X}: {:?} ", self.pc, inst);
+            // turn raw mode back on so input works
             enable_raw_mode().unwrap();
         }
         // increment PC to the Operand or next instruction
         self.pc = self.pc.wrapping_add(1);
 
+        // TODO: turn into just base instruction
+        //       move addressing mode to respective handler 
+        //       to get rid of this awful 1000+ line match
         match inst {
             Instruction::BRK => {
                 // halt execution
@@ -1014,6 +1076,7 @@ impl Emulator {
                 trace!(self, "#${:04X}", self.pc);
                 Ok(())
             }
+            // TODO: write handler instead of doing it here
             Instruction::JSR => {
                 // jump to subroutine
                 // read address of subroutine to jump to
@@ -1588,6 +1651,7 @@ impl Emulator {
                 trace!(self, "${:02X}", addr);
                 Ok(())
             }
+            // TODO: handlers for these
             Instruction::PHP => {
                 // push SR to stack with the Break bit set
                 self.push_to_stack(self.sr | SRMask::Break as u8);
@@ -2262,9 +2326,10 @@ impl Emulator {
 
         }
 
-
+        // main loop to go through instructions and run them
         'end: loop {
             if self.debug {
+                // disable raw mode so it doesnt fuck up printing
                 disable_raw_mode().unwrap();
                 // step through execution
                 let mut to_read: String = Default::default();
@@ -2280,6 +2345,9 @@ impl Emulator {
                     do not include 0x or $
                     or it will crash
                     TODO: check input when debugging
+                    TODO: make this work with the input somehow
+                    maybe add a command to give a character as input
+                    instead of an address???
                     */
                     let addr = u16::from_str_radix(to_read.trim(), 16).unwrap();
                     // print the value at the address
@@ -2287,10 +2355,14 @@ impl Emulator {
                     // clear to not mess up anything yk
                     to_read.clear();
                 }
+                // reenable raw mode to make input work
+                // TODO: see above
                 enable_raw_mode().unwrap();
             }
             if self.graphical {
                 unsafe {
+                    // this should probably be handled in assembly
+                    // TODO: maybe
                     if raylib::ffi::WindowShouldClose() {
                         break 'end;
                     }
@@ -2299,12 +2371,15 @@ impl Emulator {
 
             // check if a key has been pressed and update memory if its the case
             if event::poll(Duration::from_millis(0)).unwrap() {
+                // TODO: actually understand ts
                 if let Event::Key(key_event) = event::read().unwrap() {
+                    // make ctrl+c work in raw mode
                     if key_event.modifiers.contains(KeyModifiers::CONTROL) &&
                         key_event.code == KeyCode::Char('c') {
                             break 'end
                     }
                     // set the status to true
+                    // TODO: refactor addresses to constants
                     self.bus.write(0x4002, 0x01);
                     match key_event.code {
                         KeyCode::Char(c) => {
@@ -2312,12 +2387,15 @@ impl Emulator {
                             self.bus.write(0x4001, c as u8);  
                         }
                         KeyCode::Enter => {
+                            // TODO: refactor to constant
                             self.bus.write(0x4001, 10);  
                         }
                         KeyCode::Backspace => {
+                            // TODO: refactor to constant
                             self.bus.write(0x4001, 8); 
                         }
                         KeyCode::Esc => {
+                            // TODO: refactor to constant
                             self.bus.write(0x4001, 27);
                         }
                         _ => {}
@@ -2327,6 +2405,7 @@ impl Emulator {
             }
 
             // run an instruction and check for errors
+            // TODO: handle interrupts (somehow)
             if let Some(e) = self.exec_instruction().err() {
                 match e {
                     // not a real instruction
@@ -2353,12 +2432,15 @@ impl Emulator {
 
 /// Load ROM from file into byte array
 fn load_rom(path: &str, rom: &mut [u8; K32]) -> Result<(), String> {
+    // get the raw bytes
     let bytes = fs::read(path).map_err(|e| format!("IO Error: {}", e))?;
 
+    // move them to ROM section of bus
     for (i, byte) in bytes.iter().enumerate() {
         if i < K32 { // less than 32KiB
             rom[i as usize] = *byte;
         } else {
+            // ROM can only be 32KiB
             return Err("ROM is larger than 32KiB".to_string())
         }
     }
@@ -2371,15 +2453,18 @@ fn main() {
     let mut a = args().into_iter();
     let _program_name = a.next(); // ignored
     let rom_name = a.next().expect("You need to supply a 32KiB ROM");
+    // temporary buffer to be copied later
     let mut code: [u8; K32] = [0x00; K32];
     
     // load the ROM 
     load_rom(&rom_name, &mut code).unwrap_or_else(|e| {
+        // some error in loading, print it and DIE
         eprintln!("[ERROR]: {}", e);
         process::exit(1);
     });
 
     // init and run emulator
+    // TODO: debug flag
     let mut e = Emulator::init(code, false);
 
     // enable raw mode to allow reading raw characters
@@ -2394,3 +2479,4 @@ fn main() {
 // TODO:    add an option to replicate the JMP_IND page boundary bug
 // TODO:    use bitflags crate
 // TODO:    make debug a flag 
+// TODO:    stop adding todos and do them instead

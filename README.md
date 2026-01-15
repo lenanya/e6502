@@ -5,9 +5,9 @@
 
 `0x0100 - 0x01ff`: Stack
 
-`0x0200 - 0x4000`: misc RAM
+`0x0200 - 0x4000`: misc. RAM
 
-`0x4000 - 0x6000`: reserved1
+`0x4000 - 0x6000`: Terminal IO
 
 `0x6000 - 0x8000`: GPU (using [raylib](https://www.raylib.com/))
 
@@ -42,7 +42,7 @@ $ cargo run msbasic/temp/e6502.bin
 ```
 
 ## NOW WITH (THE WORST EVER) BAD APPLE
-you can either use the already done binary examples/ba_frames, or you can generate it yourself
+you can either use the already done binary `examples/ba_frames`, or you can generate it yourself
 by obtaining a 8x8@12 version of the bad apple video and running it through the 2 python scripts
 
 once you have said binary, just assemble bad_apple.s and run it!
@@ -55,4 +55,4 @@ once you have said binary, just assemble bad_apple.s and run it!
 - [itoa in std.s](https://youtu.be/v3-a-zqKfgA?si=bo9d8gnf18tv9Ytb)
 - [msbasic i forked](https://github.com/mist64/msbasic)
 - [msbasic fork](https://github.com/lenanya/msbasic-e6502)
-- [cc64 suite](https://cc65.github.io/)
+- [cc65 suite](https://cc65.github.io/)
